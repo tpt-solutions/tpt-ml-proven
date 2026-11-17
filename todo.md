@@ -92,16 +92,16 @@ Dependency rule: runtime deps must be MIT, MIT/Apache-2.0 dual, BSD, ISC, Zlib, 
 **Done when:** parity tests pass at 1e-9 and benchmark results are published.
 
 ## Phase 6 — FFI surface (`tpt-ml-proven-ffi`, `ffi/`)
-- [ ] Generate bindings through the tpt-telos FFI bridge (generated, not hand-written)
-- [ ] **Python:** PyO3 + maturin, abi3 wheels for Python 3.9+; scikit-learn-style API (`KMeans(n_clusters=8).fit(X).predict(X)`)
-- [ ] Python: zero-copy NumPy buffer handling; release GIL during fit
-- [ ] Python: wheels for Linux, macOS, Windows installable without a C compiler (test in clean containers/VMs)
+- [ ] ~~Generate bindings through the tpt-telos FFI bridge~~ — superseded: the bridge rejects float, array and generic types at the FFI boundary (only integers are supported), so bindings are generated per language by standard tools (PyO3/maturin, wasm-bindgen, cbindgen for cgo). Decision recorded in `docs/bindings.md`
+- [x] **Python:** PyO3 + maturin, abi3 wheels for Python 3.9+ (built as `cp39-abi3`); scikit-learn-style API, with `fit` returning self (`KMeans(n_clusters=8).fit(X).predict(X)`)
+- [x] Python: zero-copy NumPy input via `__array_interface__` (the buffer protocol is not in the stable ABI); GIL released during `fit`
+- [ ] Python: wheels for Linux, macOS, Windows installable without a C compiler (test in clean containers/VMs). Windows build works locally; Linux/macOS and clean-VM installs not yet tested
 - [ ] **Go:** cgo package at `ffi/go` (module `github.com/tpt-solutions/tpt-ml-proven/ffi/go`), Go 1.21+, idiomatic API (`NewKMeans`, `Fit`, `Predict`)
 - [ ] Go: prebuilt static libs / headers so builds need no cgo gymnastics
-- [ ] **WASM:** wasm-bindgen / wasm-pack build exposing KMeans and PCA
-- [ ] Binding tests per language (Python, Go, WASM) including f32/f64 and error propagation
-- [ ] Usage examples for each language
-- [ ] CI jobs building and testing all three bindings
+- [x] **WASM:** wasm-bindgen / wasm-pack build exposing KMeans and PCA (`ffi/wasm`, Node target)
+- [x] Binding tests for Python (12) and WASM (7), including f32/f64 and error propagation. Go: not yet (see below)
+- [x] Usage examples for Python and WASM (`ffi/python/README.md`, `ffi/wasm/README.md`). Go: not yet
+- [ ] CI jobs building and testing all three bindings. Go is blocked locally: no C compiler on this machine and `CGO_ENABLED=0`
 
 **Done when:** KMeans and PCA run from Python, Go and WASM in CI on all three OSes.
 
