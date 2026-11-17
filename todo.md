@@ -52,19 +52,19 @@ Dependency rule: runtime deps must be MIT, MIT/Apache-2.0 dual, BSD, ISC, Zlib, 
 **Done when:** CI fails on any unverified or broken contract and passes on the sample contracts.
 
 ## Phase 3 — KMeans (`tpt-ml-proven-clustering`)
-- [ ] Crate scaffold depending only on core + needed tpt-math leaves
-- [ ] Lloyd iteration (dense input)
-- [ ] Sparse input support
-- [ ] Initialisation: k-means++ and random; seeded RNG for reproducibility
-- [ ] Multi-threaded Lloyd iteration (feature-gated so core stays no_std)
-- [ ] Convergence criteria (tolerance, max iterations), empty-cluster handling
-- [ ] `fit` / `predict` / `transform` via core traits; `FitError` variants
-- [ ] Generic over `f32` and `f64`
-- [ ] `docs/contracts/kmeans.tptc`: requires (rows ≥ 1, k ≥ 1, k ≤ rows); ensures (monotonic inertia descent, convergence ⇒ stable assignments, centres in convex hull)
-- [ ] Runtime assertions for data-dependent clauses
-- [ ] Unit + property tests (edge cases: k = 1, k = n, duplicate points, NaN/inf rejection)
+- [x] Crate scaffold depending only on core (no tpt-math leaves needed for KMeans)
+- [x] Lloyd iteration (dense input)
+- [x] Sparse input support (`CsrView` in core; `get` is a binary search, so it is correct but not yet optimised)
+- [x] Initialisation: k-means++ and random; seeded RNG for reproducibility (SplitMix64)
+- [x] Multi-threaded Lloyd iteration (`parallel` feature; core stays no_std). Copies dense data for the threads. Results match sequential exactly
+- [x] Convergence criteria (tolerance, max iterations), empty-cluster handling (keeps previous centre)
+- [x] `fit` / `predict` / `transform` via core traits; `FitError` variants (core `Error`: NonFinite, InvalidParameter, EmptyInput, NotFitted, Shape)
+- [x] Generic over `f32` and `f64`
+- [x] `docs/contracts/kmeans.tptc`: requires (rows ≥ 1, k ≥ 1, k ≤ rows); ensures (monotonic inertia descent, convergence ⇒ stable assignments, centres in convex hull)
+- [x] Runtime assertions for data-dependent clauses (`kmeans.*` names in `kmeans.rs`; linkage passes)
+- [x] Unit + property tests (edge cases: k = 1, k = n, duplicate points, NaN/inf rejection)
 
-**Done when:** KMeans works on dense and sparse data and its contracts verify in CI.
+**Done when:** KMeans works on dense and sparse data and its contracts verify in CI. ✅ locally (CI contracts job not yet run on GitHub)
 
 ## Phase 4 — PCA (`tpt-ml-proven-decomposition`)
 - [ ] Crate scaffold depending only on core + needed tpt-math leaves

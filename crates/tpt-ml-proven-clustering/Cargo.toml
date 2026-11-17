@@ -1,12 +1,20 @@
 [package]
 name = "tpt-ml-proven-clustering"
-description = "Clustering estimators for tpt-ml-proven (KMeans, DBSCAN, HDBSCAN)."
+description = "Clustering estimators for tpt-ml-proven (KMeans in v0.1; DBSCAN and HDBSCAN on the roadmap)."
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 authors.workspace = true
 repository.workspace = true
 readme = "../../README.md"
+
+[features]
+default = []
+# Multi-threaded assignment step. Needs std (threads). The core crate stays no_std.
+parallel = []
+
+[dependencies]
+tpt-ml-proven-core.workspace = true
 
 [lints]
 workspace = true

@@ -66,4 +66,4 @@ pub mod view;
 pub use error::{ContractKind, ContractViolation, Error, FitError, ShapeError};
 pub use float::Float;
 pub use traits::{Predictor, SupervisedEstimator, Transformer, UnsupervisedEstimator};
-pub use view::{ArrayView, Dense, DenseView, TargetView};
+pub use view::{ArrayView, CsrView, Dense, DenseView, TargetView};

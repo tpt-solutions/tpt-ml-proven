@@ -18,6 +18,10 @@ license = "MIT OR Apache-2.0"
 authors = ["TPT Solutions"]
 repository = "https://github.com/tpt-solutions/tpt-ml-proven"
 
+[workspace.dependencies]
+# Path + version: cargo-deny rejects unversioned path dependencies as wildcards.
+tpt-ml-proven-core = { version = "0.0.0", path = "crates/tpt-ml-proven-core" }
+
 [workspace.lints.rust]
 missing_docs = "warn"
 unsafe_op_in_unsafe_fn = "deny"

@@ -159,6 +159,84 @@ impl<T: Float> ArrayView for DenseView<'_, T> {
     }
 }
 
+/// Borrowed compressed-sparse-row (CSR) matrix. Missing entries read as zero.
+///
+/// Column indices within each row must be strictly increasing, which makes
+/// [`ArrayView::get`] a binary search.
+#[derive(Debug, Clone, Copy)]
+pub struct CsrView<'a, T: Float> {
+    indptr: &'a [usize],
+    indices: &'a [usize],
+    data: &'a [T],
+    rows: usize,
+    cols: usize,
+}
+
+impl<'a, T: Float> CsrView<'a, T> {
+    /// Validates the CSR structure and wraps it without copying.
+    pub fn new(
+        indptr: &'a [usize],
+        indices: &'a [usize],
+        data: &'a [T],
+        rows: usize,
+        cols: usize,
+    ) -> Result<Self, ShapeError> {
+        let bad = |reason| ShapeError { rows, cols, reason };
+        if indptr.len() != rows + 1 {
+            return Err(bad("indptr length must be rows + 1"));
+        }
+        if indices.len() != data.len() {
+            return Err(bad("indices and data lengths differ"));
+        }
+        if indptr.first() != Some(&0) || indptr.last() != Some(&data.len()) {
+            return Err(bad("indptr must start at 0 and end at nnz"));
+        }
+        for r in 0..rows {
+            let (lo, hi) = (indptr[r], indptr[r + 1]);
+            if lo > hi {
+                return Err(bad("indptr must be non-decreasing"));
+            }
+            let row = &indices[lo..hi];
+            if row.iter().any(|&c| c >= cols) {
+                return Err(bad("column index out of range"));
+            }
+            if row.windows(2).any(|w| w[0] >= w[1]) {
+                return Err(bad(
+                    "column indices must be strictly increasing within a row",
+                ));
+            }
+        }
+        Ok(Self {
+            indptr,
+            indices,
+            data,
+            rows,
+            cols,
+        })
+    }
+}
+
+impl<T: Float> ArrayView for CsrView<'_, T> {
+    type Elem = T;
+
+    fn rows(&self) -> usize {
+        self.rows
+    }
+
+    fn cols(&self) -> usize {
+        self.cols
+    }
+
+    fn get(&self, row: usize, col: usize) -> T {
+        assert!(row < self.rows && col < self.cols, "index out of bounds");
+        let (lo, hi) = (self.indptr[row], self.indptr[row + 1]);
+        match self.indices[lo..hi].binary_search(&col) {
+            Ok(k) => self.data[lo + k],
+            Err(_) => T::ZERO,
+        }
+    }
+}
+
 /// Owned, row-major matrix. Used as the output of transformers.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Dense<T: Float> {
@@ -255,5 +333,41 @@ mod tests {
         assert_eq!(TargetView::len(&y), 3);
         assert_eq!(TargetView::get(&y, 1), 8);
         assert!(!TargetView::is_empty(&y));
+    }
+
+    #[test]
+    fn csr_reads_stored_and_missing_entries() {
+        // [[1, 0, 2], [0, 0, 0], [0, 3, 0]]
+        let indptr = [0, 2, 2, 3];
+        let indices = [0, 2, 1];
+        let data = [1.0_f64, 2.0, 3.0];
+        let v = CsrView::new(&indptr, &indices, &data, 3, 3).unwrap();
+        assert_eq!(v.get(0, 0), 1.0);
+        assert_eq!(v.get(0, 1), 0.0);
+        assert_eq!(v.get(0, 2), 2.0);
+        assert_eq!(v.get(1, 1), 0.0);
+        assert_eq!(v.get(2, 1), 3.0);
+        assert!(v.all_finite());
+    }
+
+    #[test]
+    fn csr_rejects_malformed_structure() {
+        let data = [1.0_f64];
+        assert!(
+            CsrView::new(&[0, 1], &[5], &data, 1, 3).is_err(),
+            "column out of range"
+        );
+        assert!(
+            CsrView::new(&[0, 2], &[1, 1], &[1.0, 2.0], 1, 3).is_err(),
+            "not strictly increasing"
+        );
+        assert!(
+            CsrView::new(&[1, 1], &[0], &data, 1, 3).is_err(),
+            "must start at 0"
+        );
+        assert!(
+            CsrView::new(&[0], &[], &[] as &[f64], 1, 3).is_err(),
+            "indptr length"
+        );
     }
 }
