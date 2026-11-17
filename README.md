@@ -3,7 +3,28 @@
 Classical machine learning in Rust with **proven correctness**: core algorithms carry
 `requires` / `ensures` contracts checked by a self-contained QF_LRA solver.
 
-> Status: pre-alpha. Phase 0 (project setup) only. No algorithms are implemented yet.
+> Status: pre-release (v0.1 in progress). KMeans and PCA are implemented, verified
+> against scikit-learn, and available from Rust, Python and WebAssembly. The Go
+> binding and the remaining algorithms are still to come.
+
+## Verification
+
+Each algorithm has a contract in `docs/contracts/`, written as `requires` and `ensures`
+clauses. The linear clauses are checked by a QF_LRA solver, `tpt-solver`, and every
+UNSAT answer is accepted only after its certificate is checked. Clauses outside linear
+arithmetic (for example monotone inertia descent or orthogonality) are checked at run
+time by runtime assertions. CI fails if an implemented algorithm has a contract clause
+without its runtime check. Results are compared
+with scikit-learn to 1e-9, on committed fixtures. The verifier and the solver are
+separate, dev-only tools; the library crates have no solver dependency.
+
+## Bindings
+
+- Python: `ffi/python`, PyO3 and maturin, `abi3` wheels for Python 3.9 and later.
+- WebAssembly: `ffi/wasm`, wasm-bindgen.
+- C ABI: `ffi/c`, with a generated header, for the planned Go binding.
+
+See `docs/bindings.md` for the decisions and what is still open.
 
 ## Goals
 

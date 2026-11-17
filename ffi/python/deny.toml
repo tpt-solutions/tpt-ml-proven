@@ -1,0 +1,52 @@
+# cargo-deny configuration — license, advisory, ban and source hygiene.
+# See https://embarkstudios.github.io/cargo-deny/
+
+[graph]
+# Only the platforms this workspace targets are checked. The bare-metal and
+# WASM targets matter because tpt-ml-proven-core must compile as no_std.
+targets = [
+    "x86_64-unknown-linux-gnu",
+    "x86_64-pc-windows-msvc",
+    "aarch64-apple-darwin",
+    "thumbv6m-none-eabi",
+    "wasm32-unknown-unknown",
+]
+
+[advisories]
+version = 2
+yanked = "deny"
+
+[licenses]
+# Project rule (todo.md): runtime deps must be MIT, MIT/Apache-2.0 dual, BSD,
+# ISC, Zlib, Unlicense or CC0. "Apache-2.0" on its own is deliberately NOT in
+# this list, so an Apache-2.0-only crate fails the check. A dual-licensed crate
+# written as "MIT OR Apache-2.0" passes through its MIT option.
+# Build/dev tooling may use any OSS license; those crates are not in the
+# runtime graph, so the same list is applied to the whole graph for simplicity.
+allow = [
+    "MIT",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Unicode-DFS-2016",
+    "Unicode-3.0",
+    "Zlib",
+    "Unlicense",
+    "CC0-1.0",
+]
+confidence-threshold = 0.9
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+
+# target-lexicon is a build-script dependency of pyo3-build-config only. It is not
+# linked into the wheel, and the project rule (todo.md) lets build tooling use any
+# OSS licence. Runtime dependencies still need the allow-list above.
+[[licenses.exceptions]]
+name = "target-lexicon"
+allow = ["Apache-2.0 WITH LLVM-exception"]
