@@ -14,7 +14,7 @@
 //! * `converged` means the assignments reached a fixed point (the contract's
 //!   meaning). Stopping on a small inertia change is a separate outcome,
 //!   reported through [`KMeans::converged`] as `false`.
-//! * [`Transformer::transform`](tpt_ml_proven_core::Transformer::transform)
+//! * [`Transformer::transform`]
 //!   returns squared Euclidean distances to each centre. Square roots are not
 //!   available in `no_std` core.
 
