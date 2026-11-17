@@ -80,14 +80,14 @@ Dependency rule: runtime deps must be MIT, MIT/Apache-2.0 dual, BSD, ISC, Zlib, 
 **Done when:** PCA contracts verify in CI and results are stable across platforms.
 
 ## Phase 5 — scikit-learn parity & benchmarks
-- [ ] Pinned generator script (offline, uses a fixed scikit-learn version) producing KMeans and PCA reference vectors
-- [ ] Commit fixtures (so CI never needs scikit-learn for correctness)
-- [ ] Parity tests in `f64` within 1e-9 tolerance (KMeans, PCA)
-- [ ] Document unavoidable differences (init RNG, sign flips) and how tests normalise them
-- [ ] Benchmark harness: KMeans.fit on 1M × 50 `f32`
-- [ ] Comparison script against scikit-learn on same hardware (target ≥ 2× faster)
+- [x] Pinned generator script (offline, uses a fixed scikit-learn version) producing KMeans and PCA reference vectors (, pinned to 1.9.0)
+- [x] Commit fixtures (so CI never needs scikit-learn for correctness) ()
+- [x] Parity tests in `f64` within 1e-9 tolerance (KMeans, PCA)
+- [x] Document unavoidable differences (init RNG, sign flips) and how tests normalise them (`docs/parity.md`)
+- [x] Benchmark harness: KMeans.fit on 1M × 50 `f32` (`examples/bench_kmeans.rs`)
+- [x] Comparison script against scikit-learn on same hardware (`tools/parity/bench_kmeans.py`). Target ≥ 2× faster: **not met** (see `docs/benchmarks.md`)
 - [ ] CI benchmark job as non-blocking report; record results in `docs/`
-- [ ] Profile and optimise if below 2× target
+- [ ] Profile and optimise if below 2× target — one pass done (6.26 s → 2.67 s single-thread); still 1.9× slower than scikit-learn, and the parallel path regressed
 
 **Done when:** parity tests pass at 1e-9 and benchmark results are published.
 

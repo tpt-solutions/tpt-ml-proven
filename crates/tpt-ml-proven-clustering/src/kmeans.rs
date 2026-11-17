@@ -46,6 +46,7 @@ pub struct KMeans<F: Float> {
     init: Init,
     seed: u64,
     threads: usize,
+    initial_centers: Option<Vec<F>>,
     fitted: Option<Fitted<F>>,
 }
 
@@ -69,8 +70,17 @@ impl<F: Float> KMeans<F> {
             init: Init::KMeansPlusPlus,
             seed: 0,
             threads: 1,
+            initial_centers: None,
             fitted: None,
         }
+    }
+
+    /// Uses these starting centres instead of `init`. `centers` is row-major,
+    /// `n_clusters x n_features`. Its length is checked at `fit`. Intended for
+    /// reproducing another implementation's run, and for tests.
+    pub fn with_initial_centers(mut self, centers: Vec<F>) -> Self {
+        self.initial_centers = Some(centers);
+        self
     }
 
     /// Sets the iteration limit.
@@ -193,27 +203,42 @@ impl<F: Float> UnsupervisedEstimator for KMeans<F> {
         requires!(k >= 1, "kmeans.k_positive");
         requires!(k <= rows, "kmeans.k_le_rows");
 
-        let mut rng = SplitMix64::new(self.seed);
-        let mut centers = match self.init {
-            Init::KMeansPlusPlus => plus_plus_init(&x, k, &mut rng),
-            Init::Random => random_init(&x, k, &mut rng),
+        let mut centers = match &self.initial_centers {
+            Some(given) => {
+                if given.len() != k * cols {
+                    return Err(Error::InvalidParameter {
+                        name: "initial_centers",
+                        reason: "length must be n_clusters * n_features",
+                    });
+                }
+                given.clone()
+            }
+            None => {
+                let mut rng = SplitMix64::new(self.seed);
+                match self.init {
+                    Init::KMeansPlusPlus => plus_plus_init(&x, k, &mut rng),
+                    Init::Random => random_init(&x, k, &mut rng),
+                }
+            }
         };
         let tol = F::from_f64(self.tol);
 
-        let (mut labels, mut inertia) = assign(&x, &centers, k, cols, self.threads);
+        let dense = dense_copy_if_parallel(&x, self.threads);
+        let dense = dense.as_deref();
+        let (mut labels, mut inertia) = assign(&x, dense, &centers, k, cols, self.threads);
         let mut n_iter = 0;
         let mut converged = false;
 
         for iter in 0..self.max_iter {
             let prev_inertia = inertia;
-            update_centers(&x, &labels, k, cols, &mut centers);
+            let extent = update_centers(&x, &labels, k, cols, &mut centers);
             // The centres just computed are means of the members under `labels`.
             ensures!(
-                centers_within_member_range(&x, &labels, &centers, k, cols),
+                within_extent(&centers, &extent, k, cols),
                 "kmeans.centers_in_hull"
             );
 
-            let (new_labels, new_inertia) = assign(&x, &centers, k, cols, self.threads);
+            let (new_labels, new_inertia) = assign(&x, dense, &centers, k, cols, self.threads);
             n_iter = iter + 1;
             ensures!(
                 new_inertia <= prev_inertia + descent_slack(prev_inertia),
@@ -259,7 +284,7 @@ impl<F: Float> Predictor for KMeans<F> {
             return Err(Error::NonFinite { what: "X" });
         }
         let c = centers_flat(&fitted.centers);
-        let (labels, _) = assign(&x, &c, fitted.centers.rows(), x.cols(), self.threads);
+        let (labels, _) = assign(&x, None, &c, fitted.centers.rows(), x.cols(), self.threads);
         Ok(labels)
     }
 }
@@ -282,11 +307,11 @@ impl<F: Float> Transformer for KMeans<F> {
         let cols = x.cols();
         let c = centers_flat(&fitted.centers);
         let mut out = Vec::with_capacity(x.rows() * k);
-        for r in 0..x.rows() {
+        for_each_row(&x, |_, row| {
             for j in 0..k {
-                out.push(dist_row(&x, r, &c[j * cols..(j + 1) * cols]));
+                out.push(sq_dist(row, &c[j * cols..(j + 1) * cols]));
             }
-        }
+        });
         Ok(Dense::from_vec(out, x.rows(), k)?)
     }
 
@@ -322,27 +347,38 @@ fn centers_flat<F: Float>(centers: &Dense<F>) -> Vec<F> {
     out
 }
 
-/// Squared distance between sample row `r` and a centre, summed in column order.
-fn dist_row<F: Float, X: ArrayView<Elem = F>>(x: &X, r: usize, centre: &[F]) -> F {
-    let mut acc = F::ZERO;
-    for (j, &c) in centre.iter().enumerate() {
-        let d = x.get(r, j) - c;
-        acc = acc + d * d;
+/// Squared distance between two rows of equal length.
+///
+/// Eight independent accumulators let the compiler vectorise the loop. The order
+/// of summation is fixed, so the result is reproducible. Every path uses this same
+/// kernel, so sequential and parallel runs agree exactly.
+#[inline]
+fn sq_dist<F: Float>(a: &[F], b: &[F]) -> F {
+    let mut acc = [F::ZERO; 8];
+    let (chunks_a, rest_a) = a.as_chunks::<8>();
+    let (chunks_b, rest_b) = b.as_chunks::<8>();
+    for (xa, xb) in chunks_a.iter().zip(chunks_b) {
+        for l in 0..8 {
+            let d = xa[l] - xb[l];
+            acc[l] = acc[l] + d * d;
+        }
     }
-    acc
+    let mut s = F::ZERO;
+    for v in acc {
+        s = s + v;
+    }
+    for (&p, &q) in rest_a.iter().zip(rest_b) {
+        let d = p - q;
+        s = s + d * d;
+    }
+    s
 }
 
-/// Nearest centre for one row (ties go to the lowest index), and that distance.
-fn nearest<F: Float, X: ArrayView<Elem = F>>(
-    x: &X,
-    r: usize,
-    centers: &[F],
-    k: usize,
-    cols: usize,
-) -> (usize, F) {
-    let mut best = (0, dist_row(x, r, &centers[0..cols]));
+/// Nearest centre to `row` (ties go to the lowest index), and its squared distance.
+fn nearest_row<F: Float>(row: &[F], centers: &[F], k: usize, cols: usize) -> (usize, F) {
+    let mut best = (0, sq_dist(row, &centers[..cols]));
     for c in 1..k {
-        let d = dist_row(x, r, &centers[c * cols..(c + 1) * cols]);
+        let d = sq_dist(row, &centers[c * cols..(c + 1) * cols]);
         if d < best.1 {
             best = (c, d);
         }
@@ -350,10 +386,51 @@ fn nearest<F: Float, X: ArrayView<Elem = F>>(
     best
 }
 
-/// Assignment step: labels and total inertia. The inertia is summed in row order,
-/// so it does not depend on how the work is split.
+/// Calls `f(r, row)` for every sample. A contiguous view is used in place. Other
+/// views have each row copied into one reused buffer.
+fn for_each_row<F: Float, X: ArrayView<Elem = F>>(x: &X, mut f: impl FnMut(usize, &[F])) {
+    let mut buf: Vec<F> = Vec::new();
+    for r in 0..x.rows() {
+        match x.row_slice(r) {
+            Some(row) => f(r, row),
+            None => {
+                buf.clear();
+                for j in 0..x.cols() {
+                    buf.push(x.get(r, j));
+                }
+                f(r, &buf);
+            }
+        }
+    }
+}
+
+fn copy_row<F: Float, X: ArrayView<Elem = F>>(x: &X, r: usize) -> Vec<F> {
+    (0..x.cols()).map(|j| x.get(r, j)).collect()
+}
+
+/// A row-major copy of the data, made once per fit, and only when the parallel path
+/// needs plain slices. Sequential runs never copy.
+fn dense_copy_if_parallel<F: Float, X: ArrayView<Elem = F>>(
+    x: &X,
+    threads: usize,
+) -> Option<Vec<F>> {
+    #[cfg(feature = "parallel")]
+    {
+        if threads > 1 && x.rows() > 1 {
+            let mut data = Vec::with_capacity(x.rows() * x.cols());
+            for_each_row(x, |_, row| data.extend_from_slice(row));
+            return Some(data);
+        }
+    }
+    let _ = (x, threads);
+    None
+}
+
+/// Assignment step: labels and total inertia. Inertia is summed in row order, so
+/// it does not depend on how the work is split across threads.
 fn assign<F: Float, X: ArrayView<Elem = F>>(
     x: &X,
+    dense: Option<&[F]>,
     centers: &[F],
     k: usize,
     cols: usize,
@@ -361,57 +438,41 @@ fn assign<F: Float, X: ArrayView<Elem = F>>(
 ) -> (Vec<usize>, F) {
     #[cfg(feature = "parallel")]
     {
-        if threads > 1 && x.rows() > 1 {
-            return assign_parallel(x, centers, k, cols, threads);
+        if let Some(data) = dense {
+            if threads > 1 && x.rows() > 1 {
+                return assign_parallel(data, x.rows(), centers, k, cols, threads);
+            }
         }
     }
-    let _ = threads;
-    assign_sequential(x, centers, k, cols)
-}
-
-fn assign_sequential<F: Float, X: ArrayView<Elem = F>>(
-    x: &X,
-    centers: &[F],
-    k: usize,
-    cols: usize,
-) -> (Vec<usize>, F) {
+    let _ = (dense, threads);
     let mut labels = Vec::with_capacity(x.rows());
     let mut inertia = F::ZERO;
-    for r in 0..x.rows() {
-        let (c, d) = nearest(x, r, centers, k, cols);
+    for_each_row(x, |_, row| {
+        let (c, d) = nearest_row(row, centers, k, cols);
         labels.push(c);
         inertia = inertia + d;
-    }
+    });
     (labels, inertia)
 }
 
 #[cfg(feature = "parallel")]
-fn assign_parallel<F: Float, X: ArrayView<Elem = F>>(
-    x: &X,
+fn assign_parallel<F: Float>(
+    data: &[F],
+    rows: usize,
     centers: &[F],
     k: usize,
     cols: usize,
     threads: usize,
 ) -> (Vec<usize>, F) {
-    // Threads need plain slices, so the data is copied into a row-major buffer
-    // first. The arithmetic matches the sequential path, so the results do too.
-    let rows = x.rows();
-    let mut data = Vec::with_capacity(rows * cols);
-    for r in 0..rows {
-        for j in 0..cols {
-            data.push(x.get(r, j));
-        }
-    }
     let chunk = rows.div_ceil(threads.min(rows)).max(1);
     let parts: Vec<Vec<(usize, F)>> = std::thread::scope(|s| {
         let handles: Vec<_> = (0..rows)
             .step_by(chunk)
             .map(|start| {
                 let end = (start + chunk).min(rows);
-                let data = &data;
                 s.spawn(move || {
                     (start..end)
-                        .map(|r| nearest_slice(&data[r * cols..(r + 1) * cols], centers, k, cols))
+                        .map(|r| nearest_row(&data[r * cols..(r + 1) * cols], centers, k, cols))
                         .collect::<Vec<_>>()
                 })
             })
@@ -432,43 +493,40 @@ fn assign_parallel<F: Float, X: ArrayView<Elem = F>>(
     (labels, inertia)
 }
 
-#[cfg(feature = "parallel")]
-fn nearest_slice<F: Float>(row: &[F], centers: &[F], k: usize, cols: usize) -> (usize, F) {
-    let dist = |centre: &[F]| {
-        let mut acc = F::ZERO;
-        for (&a, &c) in row.iter().zip(centre) {
-            let d = a - c;
-            acc = acc + d * d;
-        }
-        acc
-    };
-    let mut best = (0, dist(&centers[0..cols]));
-    for c in 1..k {
-        let d = dist(&centers[c * cols..(c + 1) * cols]);
-        if d < best.1 {
-            best = (c, d);
-        }
-    }
-    best
+/// Per-cluster coordinate ranges of the members, collected during the update.
+struct Extent<F: Float> {
+    lo: Vec<F>,
+    hi: Vec<F>,
+    populated: Vec<bool>,
 }
 
 /// Update step: each centre becomes the mean of its members. An empty cluster
-/// keeps its previous centre.
+/// keeps its previous centre. Also records each cluster's coordinate range.
 fn update_centers<F: Float, X: ArrayView<Elem = F>>(
     x: &X,
     labels: &[usize],
     k: usize,
     cols: usize,
     centers: &mut [F],
-) {
+) -> Extent<F> {
     let mut sums = vec![F::ZERO; k * cols];
     let mut counts = vec![0_usize; k];
-    for (r, &c) in labels.iter().enumerate() {
+    let mut lo = vec![F::ZERO; k * cols];
+    let mut hi = vec![F::ZERO; k * cols];
+    for_each_row(x, |r, row| {
+        let c = labels[r];
         counts[c] += 1;
-        for j in 0..cols {
-            sums[c * cols + j] = sums[c * cols + j] + x.get(r, j);
+        let base = c * cols;
+        for (j, &v) in row.iter().enumerate() {
+            sums[base + j] = sums[base + j] + v;
+            if counts[c] == 1 || v < lo[base + j] {
+                lo[base + j] = v;
+            }
+            if counts[c] == 1 || v > hi[base + j] {
+                hi[base + j] = v;
+            }
         }
-    }
+    });
     for c in 0..k {
         if counts[c] == 0 {
             continue;
@@ -478,12 +536,33 @@ fn update_centers<F: Float, X: ArrayView<Elem = F>>(
             centers[c * cols + j] = sums[c * cols + j] / n;
         }
     }
+    Extent {
+        lo,
+        hi,
+        populated: counts.iter().map(|&n| n > 0).collect(),
+    }
 }
 
-/// Rounding slack for the monotone-descent check. The contract is stated over the
-/// reals, and the floating-point sums can drift by a few ulps.
-fn descent_slack<F: Float>(scale: F) -> F {
-    F::EPSILON * F::from_usize(64) * (F::ONE + scale)
+/// `true` if every populated cluster's centre lies within the per-coordinate range
+/// of its members, to within rounding. A centre that is the mean of its members is
+/// a convex combination of them, so this is a necessary condition for lying in their
+/// convex hull. This is the check run for `kmeans.centers_in_hull`.
+fn within_extent<F: Float>(centers: &[F], extent: &Extent<F>, k: usize, cols: usize) -> bool {
+    for c in 0..k {
+        if !extent.populated[c] {
+            continue;
+        }
+        for j in 0..cols {
+            let idx = c * cols + j;
+            let (lo, hi) = (extent.lo[idx], extent.hi[idx]);
+            let slack = F::EPSILON * F::from_usize(16) * (F::ONE + abs_f(lo) + abs_f(hi));
+            let v = centers[idx];
+            if v < lo - slack || v > hi + slack {
+                return false;
+            }
+        }
+    }
+    true
 }
 
 fn abs_f<F: Float>(x: F) -> F {
@@ -494,47 +573,10 @@ fn abs_f<F: Float>(x: F) -> F {
     }
 }
 
-/// `true` if every non-empty cluster's centre lies within the per-coordinate range
-/// of its members, to within rounding. A centre that is the mean of its members is
-/// a convex combination of them, so this is a necessary condition for lying in
-/// their convex hull, and it is the check run for `kmeans.centers_in_hull`.
-fn centers_within_member_range<F: Float, X: ArrayView<Elem = F>>(
-    x: &X,
-    labels: &[usize],
-    centers: &[F],
-    k: usize,
-    cols: usize,
-) -> bool {
-    let mut lo = vec![F::ZERO; k * cols];
-    let mut hi = vec![F::ZERO; k * cols];
-    let mut seen = vec![false; k];
-    for (r, &c) in labels.iter().enumerate() {
-        for j in 0..cols {
-            let v = x.get(r, j);
-            let idx = c * cols + j;
-            if !seen[c] || v < lo[idx] {
-                lo[idx] = v;
-            }
-            if !seen[c] || v > hi[idx] {
-                hi[idx] = v;
-            }
-        }
-        seen[c] = true;
-    }
-    for (c, &has_members) in seen.iter().enumerate() {
-        if !has_members {
-            continue;
-        }
-        for j in 0..cols {
-            let idx = c * cols + j;
-            let slack = F::EPSILON * F::from_usize(16) * (F::ONE + abs_f(lo[idx]) + abs_f(hi[idx]));
-            let v = centers[idx];
-            if v < lo[idx] - slack || v > hi[idx] + slack {
-                return false;
-            }
-        }
-    }
-    true
+/// Rounding slack for the monotone-descent check. The contract is stated over the
+/// reals, and the floating-point sums can drift by a few ulps.
+fn descent_slack<F: Float>(scale: F) -> F {
+    F::EPSILON * F::from_usize(64) * (F::ONE + scale)
 }
 
 /// k-means++ seeding.
@@ -546,12 +588,13 @@ fn plus_plus_init<F: Float, X: ArrayView<Elem = F>>(
     let (rows, cols) = (x.rows(), x.cols());
     let mut centers = Vec::with_capacity(k * cols);
     let first = rng.next_below(rows);
-    push_row(x, first, &mut centers);
+    centers.extend(copy_row(x, first));
 
     // Weights are squared distances to the nearest chosen centre, in f64 for sampling.
-    let mut weights: Vec<f64> = (0..rows)
-        .map(|r| dist_row(x, r, &centers[0..cols]).to_f64())
-        .collect();
+    let mut weights = vec![0.0_f64; rows];
+    for_each_row(x, |r, row| {
+        weights[r] = sq_dist(row, &centers[0..cols]).to_f64()
+    });
     for _ in 1..k {
         let total: f64 = weights.iter().sum();
         let pick = if total > 0.0 {
@@ -570,19 +613,19 @@ fn plus_plus_init<F: Float, X: ArrayView<Elem = F>>(
             // Every sample coincides with a centre already, so any sample will do.
             rng.next_below(rows)
         };
-        push_row(x, pick, &mut centers);
-        let new_centre = centers.len() - cols;
-        for (r, w) in weights.iter_mut().enumerate() {
-            let d = dist_row(x, r, &centers[new_centre..new_centre + cols]).to_f64();
-            if d < *w {
-                *w = d;
+        centers.extend(copy_row(x, pick));
+        let centre = centers[centers.len() - cols..].to_vec();
+        for_each_row(x, |r, row| {
+            let d = sq_dist(row, &centre).to_f64();
+            if d < weights[r] {
+                weights[r] = d;
             }
-        }
+        });
     }
     centers
 }
 
-/// Random seeding: `k` distinct samples, chosen by a partial Fisher–Yates shuffle.
+/// Random seeding: `k` distinct samples, chosen by a partial Fisher-Yates shuffle.
 fn random_init<F: Float, X: ArrayView<Elem = F>>(x: &X, k: usize, rng: &mut SplitMix64) -> Vec<F> {
     let rows = x.rows();
     let mut order: Vec<usize> = (0..rows).collect();
@@ -590,13 +633,7 @@ fn random_init<F: Float, X: ArrayView<Elem = F>>(x: &X, k: usize, rng: &mut Spli
     for i in 0..k {
         let j = i + rng.next_below(rows - i);
         order.swap(i, j);
-        push_row(x, order[i], &mut centers);
+        centers.extend(copy_row(x, order[i]));
     }
     centers
-}
-
-fn push_row<F: Float, X: ArrayView<Elem = F>>(x: &X, r: usize, out: &mut Vec<F>) {
-    for j in 0..x.cols() {
-        out.push(x.get(r, j));
-    }
 }
