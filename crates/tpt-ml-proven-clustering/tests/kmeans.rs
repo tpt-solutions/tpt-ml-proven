@@ -348,3 +348,21 @@ fn explicit_initial_centres_are_used_and_length_checked() {
         }
     ));
 }
+
+#[cfg(feature = "parallel")]
+#[test]
+fn parallel_update_over_many_chunks_matches_sequential_exactly() {
+    // More than one update chunk (4096 rows each), so the threaded update runs.
+    let rows = 10_000;
+    let data = random_matrix(33, rows, 3);
+    let run = |threads: usize| {
+        let mut km = KMeans::<f64>::new(6).with_seed(2).with_threads(threads);
+        UnsupervisedEstimator::fit(&mut km, DenseView::new(&data, rows, 3).unwrap()).unwrap();
+        km
+    };
+    let (one, three, eight) = (run(1), run(3), run(8));
+    assert_eq!(one.labels(), three.labels());
+    assert_eq!(one.labels(), eight.labels());
+    assert_eq!(one.inertia(), three.inertia());
+    assert_eq!(one.cluster_centers(), eight.cluster_centers());
+}

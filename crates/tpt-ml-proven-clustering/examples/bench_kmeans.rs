@@ -18,7 +18,7 @@ use tpt_ml_proven_core::{DenseView, UnsupervisedEstimator};
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
-    if args.len() != 6 {
+    if args.len() != 6 && args.len() != 7 {
         eprintln!("usage: bench_kmeans <data.bin> <rows> <cols> <k> <iters>");
         std::process::exit(2);
     }
@@ -40,7 +40,12 @@ fn main() {
     // The same starting centres as the scikit-learn run: the first k rows.
     let init: Vec<f32> = data[..k * cols].to_vec();
 
-    let threads: Vec<usize> = if cfg!(feature = "parallel") {
+    // Optional sixth argument: comma-separated thread counts to time, e.g. "1,2,4".
+    let threads: Vec<usize> = if let Some(list) = args.get(6) {
+        list.split(',')
+            .map(|t| t.parse().expect("thread count"))
+            .collect()
+    } else if cfg!(feature = "parallel") {
         vec![
             1,
             std::thread::available_parallelism().map_or(1, |n| n.get()),

@@ -231,7 +231,7 @@ impl<F: Float> UnsupervisedEstimator for KMeans<F> {
 
         for iter in 0..self.max_iter {
             let prev_inertia = inertia;
-            let extent = update_centers(&x, &labels, k, cols, &mut centers);
+            let extent = update_centers(&x, dense, &labels, k, cols, &mut centers, self.threads);
             // The centres just computed are means of the members under `labels`.
             ensures!(
                 within_extent(&centers, &extent, k, cols),
@@ -504,29 +504,41 @@ struct Extent<F: Float> {
 /// keeps its previous centre. Also records each cluster's coordinate range.
 fn update_centers<F: Float, X: ArrayView<Elem = F>>(
     x: &X,
+    dense: Option<&[F]>,
     labels: &[usize],
     k: usize,
     cols: usize,
     centers: &mut [F],
+    threads: usize,
 ) -> Extent<F> {
+    let rows = x.rows();
+    let chunks = rows.div_ceil(UPDATE_CHUNK);
+    let partials = chunk_partials(x, dense, labels, k, cols, chunks, threads);
+
+    // Merge in chunk order, so the sums do not depend on the thread count.
     let mut sums = vec![F::ZERO; k * cols];
     let mut counts = vec![0_usize; k];
     let mut lo = vec![F::ZERO; k * cols];
     let mut hi = vec![F::ZERO; k * cols];
-    for_each_row(x, |r, row| {
-        let c = labels[r];
-        counts[c] += 1;
-        let base = c * cols;
-        for (j, &v) in row.iter().enumerate() {
-            sums[base + j] = sums[base + j] + v;
-            if counts[c] == 1 || v < lo[base + j] {
-                lo[base + j] = v;
+    for p in &partials {
+        for c in 0..k {
+            if p.counts[c] == 0 {
+                continue;
             }
-            if counts[c] == 1 || v > hi[base + j] {
-                hi[base + j] = v;
+            let fresh = counts[c] == 0;
+            counts[c] += p.counts[c];
+            for j in 0..cols {
+                let idx = c * cols + j;
+                sums[idx] = sums[idx] + p.sums[idx];
+                if fresh || p.lo[idx] < lo[idx] {
+                    lo[idx] = p.lo[idx];
+                }
+                if fresh || p.hi[idx] > hi[idx] {
+                    hi[idx] = p.hi[idx];
+                }
             }
         }
-    });
+    }
     for c in 0..k {
         if counts[c] == 0 {
             continue;
@@ -541,6 +553,134 @@ fn update_centers<F: Float, X: ArrayView<Elem = F>>(
         hi,
         populated: counts.iter().map(|&n| n > 0).collect(),
     }
+}
+
+/// Rows per update chunk. Fixed, so the partial sums are the same for any thread
+/// count.
+const UPDATE_CHUNK: usize = 4096;
+
+/// Per-cluster sums, counts and coordinate ranges over one chunk of rows.
+struct Partial<F: Float> {
+    sums: Vec<F>,
+    counts: Vec<usize>,
+    lo: Vec<F>,
+    hi: Vec<F>,
+}
+
+impl<F: Float> Partial<F> {
+    fn new(k: usize, cols: usize) -> Self {
+        Self {
+            sums: vec![F::ZERO; k * cols],
+            counts: vec![0; k],
+            lo: vec![F::ZERO; k * cols],
+            hi: vec![F::ZERO; k * cols],
+        }
+    }
+
+    fn add(&mut self, c: usize, row: &[F]) {
+        let first = self.counts[c] == 0;
+        self.counts[c] += 1;
+        let base = c * row.len();
+        for (j, &v) in row.iter().enumerate() {
+            let idx = base + j;
+            self.sums[idx] = self.sums[idx] + v;
+            if first || v < self.lo[idx] {
+                self.lo[idx] = v;
+            }
+            if first || v > self.hi[idx] {
+                self.hi[idx] = v;
+            }
+        }
+    }
+}
+
+/// Partial statistics for chunk `chunk` of the rows.
+fn chunk_partial<F: Float, X: ArrayView<Elem = F>>(
+    x: &X,
+    dense: Option<&[F]>,
+    labels: &[usize],
+    k: usize,
+    cols: usize,
+    chunk: usize,
+) -> Partial<F> {
+    let start = chunk * UPDATE_CHUNK;
+    let end = (start + UPDATE_CHUNK).min(x.rows());
+    let mut p = Partial::new(k, cols);
+    match dense {
+        Some(data) => {
+            for (r, &c) in labels.iter().enumerate().take(end).skip(start) {
+                p.add(c, &data[r * cols..(r + 1) * cols]);
+            }
+        }
+        None => {
+            let mut buf: Vec<F> = Vec::with_capacity(cols);
+            for (r, &c) in labels.iter().enumerate().take(end).skip(start) {
+                let row: &[F] = match x.row_slice(r) {
+                    Some(s) => s,
+                    None => {
+                        buf.clear();
+                        buf.extend((0..cols).map(|j| x.get(r, j)));
+                        &buf
+                    }
+                };
+                p.add(c, row);
+            }
+        }
+    }
+    p
+}
+
+/// All chunk partials, in chunk order.
+fn chunk_partials<F: Float, X: ArrayView<Elem = F>>(
+    x: &X,
+    dense: Option<&[F]>,
+    labels: &[usize],
+    k: usize,
+    cols: usize,
+    chunks: usize,
+    threads: usize,
+) -> Vec<Partial<F>> {
+    // Computed here, so the threads capture a plain number and not `x` itself.
+    // The generic view is not required to be `Sync`.
+    let rows = x.rows();
+    #[cfg(feature = "parallel")]
+    {
+        if let Some(data) = dense {
+            if threads > 1 && chunks > 1 {
+                let workers = threads.min(chunks);
+                let mut indexed: Vec<(usize, Partial<F>)> = std::thread::scope(|s| {
+                    let handles: Vec<_> = (0..workers)
+                        .map(|t| {
+                            s.spawn(move || {
+                                (t..chunks)
+                                    .step_by(workers)
+                                    .map(|c| {
+                                        let start = c * UPDATE_CHUNK;
+                                        let end = (start + UPDATE_CHUNK).min(rows);
+                                        let mut p = Partial::new(k, cols);
+                                        for r in start..end {
+                                            p.add(labels[r], &data[r * cols..(r + 1) * cols]);
+                                        }
+                                        (c, p)
+                                    })
+                                    .collect::<Vec<_>>()
+                            })
+                        })
+                        .collect();
+                    handles
+                        .into_iter()
+                        .flat_map(|h| h.join().unwrap_or_else(|e| std::panic::resume_unwind(e)))
+                        .collect()
+                });
+                indexed.sort_by_key(|(c, _)| *c);
+                return indexed.into_iter().map(|(_, p)| p).collect();
+            }
+        }
+    }
+    let _ = threads;
+    (0..chunks)
+        .map(|c| chunk_partial(x, dense, labels, k, cols, c))
+        .collect()
 }
 
 /// `true` if every populated cluster's centre lies within the per-coordinate range

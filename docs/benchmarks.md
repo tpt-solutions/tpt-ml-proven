@@ -11,7 +11,13 @@ Machine: 20 logical cores, Windows. Release builds only (`cargo run --release`).
 | --- | --- | --- | --- |
 | scikit-learn 1.9.0 (`algorithm="lloyd"`) | 1.389 s | 0.426 s | 20 |
 | tpt-ml-proven, first version | 6.257 s | 3.499 s | 20 |
-| tpt-ml-proven, current | 2.666 s | 5.065 s | 20 |
+| tpt-ml-proven, parallel update | 2.634 s | 0.725 s | 20 |
+
+Thread scaling for tpt-ml-proven (same data and settings):
+
+| Threads | 1 | 2 | 4 | 8 | 20 |
+| --- | --- | --- | --- | --- | --- |
+| Seconds | 2.634 | 1.714 | 1.059 | 0.837 | 0.725 |
 
 Reproduce:
 
@@ -24,7 +30,7 @@ cargo run --release -p tpt-ml-proven-clustering --example bench_kmeans \
 ## Status against the target
 
 The target is at least 2× faster than scikit-learn on the same hardware. **It is not
-met.** On one thread we are about 1.9× slower. With all cores we are about 12× slower.
+met.** On one thread we are about 1.9× slower. With all cores we are about 1.7× slower.
 
 Changes that helped the single-thread path, from 6.26 s to 2.67 s:
 
@@ -36,10 +42,13 @@ Changes that helped the single-thread path, from 6.26 s to 2.67 s:
 
 Open problems:
 
-- **Parallel path regressed** from 3.50 s to 5.07 s. The only change in the parallel
-  path was a single up-front copy of the data (previously it was copied every
-  iteration), so the cause is not yet known. Next step: profile the thread-scope and
-  join overhead per iteration, and check for contention on the shared labels buffer.
+- **Parallel update was the bottleneck.** The centre update ran on one thread and
+  scanned all the data each iteration, which capped the speed-up. It is now chunked
+  (4096 rows per chunk) and merged in chunk order, so results are identical for any
+  thread count. This took the 20-thread time from 2.06 s to 0.72 s. The earlier 5.07 s
+  figure was not reproduced on a second run, so treat it as noise.
+- **Remaining all-core gap** of about 1.7×, and the single-thread gap of about 1.9×.
+  The threads now scale well up to 8, and flatten after that.
 - **Gap to scikit-learn on one thread.** scikit-learn computes distances with a
   matrix-multiply formulation (`|x|² − 2x·c + |c|²`) through BLAS. Matching that
   likely needs either a blocked kernel written here, or a BLAS dependency, which the
