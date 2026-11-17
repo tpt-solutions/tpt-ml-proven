@@ -225,38 +225,45 @@ impl<F: Float> UnsupervisedEstimator for KMeans<F> {
 
         let dense = dense_copy_if_parallel(&x, self.threads);
         let dense = dense.as_deref();
-        let (mut labels, mut inertia) = assign(&x, dense, &centers, k, cols, self.threads);
+        let mut current = pass(&x, dense, &centers, k, cols, self.threads);
+        let mut inertia = current.inertia;
         let mut n_iter = 0;
         let mut converged = false;
 
         for iter in 0..self.max_iter {
             let prev_inertia = inertia;
-            let extent = update_centers(&x, dense, &labels, k, cols, &mut centers, self.threads);
-            // The centres just computed are means of the members under `labels`.
+            // The new centres are the means of the members under the current labels.
+            let mut next = centers.clone();
+            centers_from_stats(&current.stats, &mut next, k, cols);
             ensures!(
-                within_extent(&centers, &extent, k, cols),
+                within_members(&next, &current.stats, k, cols),
                 "kmeans.centers_in_hull"
             );
+            centers = next;
 
-            let (new_labels, new_inertia) = assign(&x, dense, &centers, k, cols, self.threads);
+            let prev_labels = std::mem::take(&mut current.labels);
+            current = pass(&x, dense, &centers, k, cols, self.threads);
             n_iter = iter + 1;
             ensures!(
-                new_inertia <= prev_inertia + descent_slack(prev_inertia),
+                current.inertia <= prev_inertia + descent_slack(prev_inertia),
                 "kmeans.monotone_inertia"
             );
 
-            converged = new_labels == labels;
+            converged = current.labels == prev_labels;
             if converged {
-                ensures!(new_labels == labels, "kmeans.converged_means_stable");
+                ensures!(
+                    current.labels == prev_labels,
+                    "kmeans.converged_means_stable"
+                );
             }
 
-            let improvement = prev_inertia - new_inertia;
-            labels = new_labels;
-            inertia = new_inertia;
+            let improvement = prev_inertia - current.inertia;
+            inertia = current.inertia;
             if converged || improvement <= tol * (F::ONE + prev_inertia) {
                 break;
             }
         }
+        let labels = current.labels;
 
         ensures!(k <= rows, "kmeans.k_within_rows");
         self.fitted = Some(Fitted {
@@ -426,8 +433,8 @@ fn dense_copy_if_parallel<F: Float, X: ArrayView<Elem = F>>(
     None
 }
 
-/// Assignment step: labels and total inertia. Inertia is summed in row order, so
-/// it does not depend on how the work is split across threads.
+/// Assignment step: labels and total inertia, for prediction. Inertia is summed in
+/// chunk order, so it does not depend on how the work is split across threads.
 fn assign<F: Float, X: ArrayView<Elem = F>>(
     x: &X,
     dense: Option<&[F]>,
@@ -436,130 +443,11 @@ fn assign<F: Float, X: ArrayView<Elem = F>>(
     cols: usize,
     threads: usize,
 ) -> (Vec<usize>, F) {
-    #[cfg(feature = "parallel")]
-    {
-        if let Some(data) = dense {
-            if threads > 1 && x.rows() > 1 {
-                return assign_parallel(data, x.rows(), centers, k, cols, threads);
-            }
-        }
-    }
-    let _ = (dense, threads);
-    let mut labels = Vec::with_capacity(x.rows());
-    let mut inertia = F::ZERO;
-    for_each_row(x, |_, row| {
-        let (c, d) = nearest_row(row, centers, k, cols);
-        labels.push(c);
-        inertia = inertia + d;
-    });
-    (labels, inertia)
+    let p = pass(x, dense, centers, k, cols, threads);
+    (p.labels, p.inertia)
 }
 
-#[cfg(feature = "parallel")]
-fn assign_parallel<F: Float>(
-    data: &[F],
-    rows: usize,
-    centers: &[F],
-    k: usize,
-    cols: usize,
-    threads: usize,
-) -> (Vec<usize>, F) {
-    let chunk = rows.div_ceil(threads.min(rows)).max(1);
-    let parts: Vec<Vec<(usize, F)>> = std::thread::scope(|s| {
-        let handles: Vec<_> = (0..rows)
-            .step_by(chunk)
-            .map(|start| {
-                let end = (start + chunk).min(rows);
-                s.spawn(move || {
-                    (start..end)
-                        .map(|r| nearest_row(&data[r * cols..(r + 1) * cols], centers, k, cols))
-                        .collect::<Vec<_>>()
-                })
-            })
-            .collect();
-        handles
-            .into_iter()
-            .map(|h| h.join().unwrap_or_else(|e| std::panic::resume_unwind(e)))
-            .collect()
-    });
-    let mut labels = Vec::with_capacity(rows);
-    let mut inertia = F::ZERO;
-    for part in parts {
-        for (c, d) in part {
-            labels.push(c);
-            inertia = inertia + d;
-        }
-    }
-    (labels, inertia)
-}
-
-/// Per-cluster coordinate ranges of the members, collected during the update.
-struct Extent<F: Float> {
-    lo: Vec<F>,
-    hi: Vec<F>,
-    populated: Vec<bool>,
-}
-
-/// Update step: each centre becomes the mean of its members. An empty cluster
-/// keeps its previous centre. Also records each cluster's coordinate range.
-fn update_centers<F: Float, X: ArrayView<Elem = F>>(
-    x: &X,
-    dense: Option<&[F]>,
-    labels: &[usize],
-    k: usize,
-    cols: usize,
-    centers: &mut [F],
-    threads: usize,
-) -> Extent<F> {
-    let rows = x.rows();
-    let chunks = rows.div_ceil(UPDATE_CHUNK);
-    let partials = chunk_partials(x, dense, labels, k, cols, chunks, threads);
-
-    // Merge in chunk order, so the sums do not depend on the thread count.
-    let mut sums = vec![F::ZERO; k * cols];
-    let mut counts = vec![0_usize; k];
-    let mut lo = vec![F::ZERO; k * cols];
-    let mut hi = vec![F::ZERO; k * cols];
-    for p in &partials {
-        for c in 0..k {
-            if p.counts[c] == 0 {
-                continue;
-            }
-            let fresh = counts[c] == 0;
-            counts[c] += p.counts[c];
-            for j in 0..cols {
-                let idx = c * cols + j;
-                sums[idx] = sums[idx] + p.sums[idx];
-                if fresh || p.lo[idx] < lo[idx] {
-                    lo[idx] = p.lo[idx];
-                }
-                if fresh || p.hi[idx] > hi[idx] {
-                    hi[idx] = p.hi[idx];
-                }
-            }
-        }
-    }
-    for c in 0..k {
-        if counts[c] == 0 {
-            continue;
-        }
-        let n = F::from_usize(counts[c]);
-        for j in 0..cols {
-            centers[c * cols + j] = sums[c * cols + j] / n;
-        }
-    }
-    Extent {
-        lo,
-        hi,
-        populated: counts.iter().map(|&n| n > 0).collect(),
-    }
-}
-
-/// Rows per update chunk. Fixed, so the partial sums are the same for any thread
-/// count.
-const UPDATE_CHUNK: usize = 4096;
-
-/// Per-cluster sums, counts and coordinate ranges over one chunk of rows.
+/// Per-cluster sums, counts and coordinate ranges over a set of samples.
 struct Partial<F: Float> {
     sums: Vec<F>,
     counts: Vec<usize>,
@@ -601,76 +489,96 @@ impl<F: Float> Partial<F> {
             *h = if v > *h { v } else { *h };
         }
     }
-}
 
-/// Partial statistics for chunk `chunk` of the rows.
-fn chunk_partial<F: Float, X: ArrayView<Elem = F>>(
-    x: &X,
-    dense: Option<&[F]>,
-    labels: &[usize],
-    k: usize,
-    cols: usize,
-    chunk: usize,
-) -> Partial<F> {
-    let start = chunk * UPDATE_CHUNK;
-    let end = (start + UPDATE_CHUNK).min(x.rows());
-    let mut p = Partial::new(k, cols);
-    match dense {
-        Some(data) => {
-            for (r, &c) in labels.iter().enumerate().take(end).skip(start) {
-                p.add(c, &data[r * cols..(r + 1) * cols]);
+    /// Folds `other` in. Merging in a fixed order gives the same totals every time.
+    fn merge(&mut self, other: &Partial<F>, k: usize, cols: usize) {
+        for c in 0..k {
+            if other.counts[c] == 0 {
+                continue;
             }
-        }
-        None => {
-            let mut buf: Vec<F> = Vec::with_capacity(cols);
-            for (r, &c) in labels.iter().enumerate().take(end).skip(start) {
-                let row: &[F] = match x.row_slice(r) {
-                    Some(s) => s,
-                    None => {
-                        buf.clear();
-                        buf.extend((0..cols).map(|j| x.get(r, j)));
-                        &buf
-                    }
-                };
-                p.add(c, row);
+            let fresh = self.counts[c] == 0;
+            self.counts[c] += other.counts[c];
+            for j in 0..cols {
+                let idx = c * cols + j;
+                self.sums[idx] = self.sums[idx] + other.sums[idx];
+                if fresh || other.lo[idx] < self.lo[idx] {
+                    self.lo[idx] = other.lo[idx];
+                }
+                if fresh || other.hi[idx] > self.hi[idx] {
+                    self.hi[idx] = other.hi[idx];
+                }
             }
         }
     }
-    p
 }
 
-/// All chunk partials, in chunk order.
-fn chunk_partials<F: Float, X: ArrayView<Elem = F>>(
+/// Rows per chunk. Fixed, so the results do not depend on the thread count.
+const UPDATE_CHUNK: usize = 4096;
+
+/// Result of one fused pass: each sample's nearest centre, the inertia against those
+/// centres, and the statistics of the resulting clusters, which give the next centres.
+struct Pass<F: Float> {
+    labels: Vec<usize>,
+    inertia: F,
+    stats: Partial<F>,
+}
+
+/// One sweep over the data: assigns every sample to its nearest centre and accumulates
+/// the statistics of the new clusters in the same pass, so the data is read once per
+/// iteration rather than twice.
+fn pass<F: Float, X: ArrayView<Elem = F>>(
     x: &X,
     dense: Option<&[F]>,
-    labels: &[usize],
+    centers: &[F],
+    k: usize,
+    cols: usize,
+    threads: usize,
+) -> Pass<F> {
+    let rows = x.rows();
+    let chunks = rows.div_ceil(UPDATE_CHUNK);
+    let parts = chunk_passes(x, dense, centers, k, cols, chunks, threads);
+    let mut labels = Vec::with_capacity(rows);
+    let mut inertia = F::ZERO;
+    let mut stats = Partial::new(k, cols);
+    for (chunk_labels, chunk_inertia, chunk_stats) in parts {
+        labels.extend(chunk_labels);
+        inertia = inertia + chunk_inertia;
+        stats.merge(&chunk_stats, k, cols);
+    }
+    Pass {
+        labels,
+        inertia,
+        stats,
+    }
+}
+
+/// Results for one chunk: labels, inertia, and cluster statistics.
+type ChunkResult<F> = (Vec<usize>, F, Partial<F>);
+
+/// The chunk passes, in chunk order.
+fn chunk_passes<F: Float, X: ArrayView<Elem = F>>(
+    x: &X,
+    dense: Option<&[F]>,
+    centers: &[F],
     k: usize,
     cols: usize,
     chunks: usize,
     threads: usize,
-) -> Vec<Partial<F>> {
+) -> Vec<ChunkResult<F>> {
+    // A plain number, not `x`: the generic view is not required to be `Sync`.
+    let rows = x.rows();
     #[cfg(feature = "parallel")]
     {
         if let Some(data) = dense {
             if threads > 1 && chunks > 1 {
-                // A plain number, not `x`: the generic view is not required to be `Sync`.
-                let rows = x.rows();
                 let workers = threads.min(chunks);
-                let mut indexed: Vec<(usize, Partial<F>)> = std::thread::scope(|s| {
+                let mut indexed: Vec<(usize, ChunkResult<F>)> = std::thread::scope(|s| {
                     let handles: Vec<_> = (0..workers)
                         .map(|t| {
                             s.spawn(move || {
                                 (t..chunks)
                                     .step_by(workers)
-                                    .map(|c| {
-                                        let start = c * UPDATE_CHUNK;
-                                        let end = (start + UPDATE_CHUNK).min(rows);
-                                        let mut p = Partial::new(k, cols);
-                                        for r in start..end {
-                                            p.add(labels[r], &data[r * cols..(r + 1) * cols]);
-                                        }
-                                        (c, p)
-                                    })
+                                    .map(|c| (c, slice_chunk(data, rows, centers, k, cols, c)))
                                     .collect::<Vec<_>>()
                             })
                         })
@@ -681,28 +589,101 @@ fn chunk_partials<F: Float, X: ArrayView<Elem = F>>(
                         .collect()
                 });
                 indexed.sort_by_key(|(c, _)| *c);
-                return indexed.into_iter().map(|(_, p)| p).collect();
+                return indexed.into_iter().map(|(_, r)| r).collect();
             }
         }
     }
     let _ = threads;
     (0..chunks)
-        .map(|c| chunk_partial(x, dense, labels, k, cols, c))
+        .map(|c| match dense {
+            Some(data) => slice_chunk(data, rows, centers, k, cols, c),
+            None => view_chunk(x, centers, k, cols, c),
+        })
         .collect()
 }
 
-/// `true` if every populated cluster's centre lies within the per-coordinate range
-/// of its members, to within rounding. A centre that is the mean of its members is
-/// a convex combination of them, so this is a necessary condition for lying in their
-/// convex hull. This is the check run for `kmeans.centers_in_hull`.
-fn within_extent<F: Float>(centers: &[F], extent: &Extent<F>, k: usize, cols: usize) -> bool {
+/// One chunk, read from a contiguous row-major slice.
+fn slice_chunk<F: Float>(
+    data: &[F],
+    rows: usize,
+    centers: &[F],
+    k: usize,
+    cols: usize,
+    chunk: usize,
+) -> ChunkResult<F> {
+    let start = chunk * UPDATE_CHUNK;
+    let end = (start + UPDATE_CHUNK).min(rows);
+    let mut labels = Vec::with_capacity(end - start);
+    let mut inertia = F::ZERO;
+    let mut stats = Partial::new(k, cols);
+    for r in start..end {
+        let row = &data[r * cols..(r + 1) * cols];
+        let (c, d) = nearest_row(row, centers, k, cols);
+        labels.push(c);
+        inertia = inertia + d;
+        stats.add(c, row);
+    }
+    (labels, inertia, stats)
+}
+
+/// One chunk, read through the generic view. Rows that are not contiguous are copied
+/// into a reused buffer.
+fn view_chunk<F: Float, X: ArrayView<Elem = F>>(
+    x: &X,
+    centers: &[F],
+    k: usize,
+    cols: usize,
+    chunk: usize,
+) -> ChunkResult<F> {
+    let start = chunk * UPDATE_CHUNK;
+    let end = (start + UPDATE_CHUNK).min(x.rows());
+    let mut labels = Vec::with_capacity(end - start);
+    let mut inertia = F::ZERO;
+    let mut stats = Partial::new(k, cols);
+    let mut buf: Vec<F> = Vec::with_capacity(cols);
+    for r in start..end {
+        let row: &[F] = match x.row_slice(r) {
+            Some(s) => s,
+            None => {
+                buf.clear();
+                buf.extend((0..cols).map(|j| x.get(r, j)));
+                &buf
+            }
+        };
+        let (c, d) = nearest_row(row, centers, k, cols);
+        labels.push(c);
+        inertia = inertia + d;
+        stats.add(c, row);
+    }
+    (labels, inertia, stats)
+}
+
+/// Each centre becomes the mean of its members, from the statistics of a pass. An empty
+/// cluster keeps its previous centre.
+fn centers_from_stats<F: Float>(stats: &Partial<F>, centers: &mut [F], k: usize, cols: usize) {
     for c in 0..k {
-        if !extent.populated[c] {
+        if stats.counts[c] == 0 {
+            continue;
+        }
+        let n = F::from_usize(stats.counts[c]);
+        for j in 0..cols {
+            centers[c * cols + j] = stats.sums[c * cols + j] / n;
+        }
+    }
+}
+
+/// `true` if every populated cluster's centre lies within the per-coordinate range of
+/// its members, to within rounding. A centre that is the mean of its members is a convex
+/// combination of them, so this is a necessary condition for lying in their convex hull.
+/// This is the check run for `kmeans.centers_in_hull`.
+fn within_members<F: Float>(centers: &[F], stats: &Partial<F>, k: usize, cols: usize) -> bool {
+    for c in 0..k {
+        if stats.counts[c] == 0 {
             continue;
         }
         for j in 0..cols {
             let idx = c * cols + j;
-            let (lo, hi) = (extent.lo[idx], extent.hi[idx]);
+            let (lo, hi) = (stats.lo[idx], stats.hi[idx]);
             let slack = F::EPSILON * F::from_usize(16) * (F::ONE + abs_f(lo) + abs_f(hi));
             let v = centers[idx];
             if v < lo - slack || v > hi + slack {

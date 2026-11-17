@@ -13,6 +13,21 @@ Machine: 20 logical cores, Windows. Release builds only (`cargo run --release`).
 | tpt-ml-proven, first version | 6.257 s | 3.499 s | 20 |
 | tpt-ml-proven, parallel update | 2.634 s | 0.725 s | 20 |
 | tpt-ml-proven, profiled and tuned | 1.452 s | 0.601 s | 20 |
+| tpt-ml-proven, fused pass | 1.611 s | 0.420 s | 20 |
+
+Thread scaling for the fused pass: 1.61 s, 0.97 s, 0.62 s, 0.47 s and 0.42 s at 1, 2,
+4, 8 and 20 threads.
+
+The fused pass assigns each sample and accumulates the next centres in the same sweep,
+so the data is read once per iteration instead of twice. That costs a little on one
+thread, where the work is compute-bound, and helps a lot on many threads, where memory
+bandwidth is shared. The all-core time is now level with scikit-learn.
+
+Tried and rejected: an AVX2 distance kernel chosen at run time, with the same
+arithmetic as the portable code, so results would be bit-identical. It was slower on
+one thread (1.80 to 2.09 s), because the portable code already compiles to good SSE2
+and the per-centre reduction costs as much as the wider lanes save. It was faster only
+marginally on all cores. It was removed.
 
 Thread scaling for tpt-ml-proven (same data and settings):
 
@@ -56,8 +71,8 @@ baseline x86-64 (SSE2), and scikit-learn's BLAS uses wider vectors.
 ## Status against the target
 
 The target is at least 2× faster than scikit-learn on the same hardware. **It is not
-met.** On one thread we are now level with scikit-learn (1.45 s against 1.39 s). With all
-cores we are about 1.4× slower (0.60 s against 0.43 s).
+met.** On one thread we are about 1.16× slower (1.61 s against 1.39 s). With all cores we
+are level (0.42 s against 0.43 s), which is about 1.0× and not 2×.
 
 Changes that helped the single-thread path, from 6.26 s to 2.67 s:
 
