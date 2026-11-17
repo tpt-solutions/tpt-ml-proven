@@ -37,14 +37,19 @@ See [docs/DESIGN.md](docs/DESIGN.md) for the full design specification.
 
 ## Workspace
 
-| Crate | Purpose |
-| --- | --- |
-| `tpt-ml-proven-core` | Estimator traits, contracts, shared errors (`no_std` + `alloc`) |
-| `tpt-ml-proven-clustering` | KMeans, DBSCAN, HDBSCAN |
-| `tpt-ml-proven-decomposition` | PCA, TruncatedSVD, NMF |
-| `tpt-ml-proven-linear` | Ridge, Lasso, ElasticNet, Logistic regression |
-| `tpt-ml-proven-preprocessing` | Scalers, encoders, imputers |
-| `tpt-ml-proven-ffi` | PyO3 and cgo glue |
+Each crate has its own README and changelog.
+
+| Crate | Status | Purpose | Docs |
+| --- | --- | --- | --- |
+| `tpt-ml-proven-core` | Implemented | Estimator traits, contracts, shared errors (`no_std` + `alloc`) | [README](crates/tpt-ml-proven-core/README.md) · [CHANGELOG](crates/tpt-ml-proven-core/CHANGELOG.md) |
+| `tpt-ml-proven-clustering` | KMeans implemented; DBSCAN, HDBSCAN planned | Clustering estimators | [README](crates/tpt-ml-proven-clustering/README.md) · [CHANGELOG](crates/tpt-ml-proven-clustering/CHANGELOG.md) |
+| `tpt-ml-proven-decomposition` | PCA implemented; TruncatedSVD, NMF planned | Matrix decomposition estimators | [README](crates/tpt-ml-proven-decomposition/README.md) · [CHANGELOG](crates/tpt-ml-proven-decomposition/CHANGELOG.md) |
+| `tpt-ml-proven-linear` | Planned | Ridge, Lasso, ElasticNet, logistic regression | [README](crates/tpt-ml-proven-linear/README.md) · [CHANGELOG](crates/tpt-ml-proven-linear/CHANGELOG.md) |
+| `tpt-ml-proven-preprocessing` | Planned | Scalers, encoders, imputers | [README](crates/tpt-ml-proven-preprocessing/README.md) · [CHANGELOG](crates/tpt-ml-proven-preprocessing/CHANGELOG.md) |
+| `tpt-ml-proven-ffi` | Placeholder | FFI surface; the bindings live in `ffi/` | [README](crates/tpt-ml-proven-ffi/README.md) · [CHANGELOG](crates/tpt-ml-proven-ffi/CHANGELOG.md) |
+
+Workspace-wide changes (contracts, the verifier, parity tests, bindings) are recorded in
+the [root changelog](CHANGELOG.md).
 
 ## Building
 
