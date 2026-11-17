@@ -37,6 +37,12 @@ pub trait Float:
 
     /// `true` if the value is neither infinite nor NaN.
     fn is_finite(self) -> bool;
+
+    /// Widens to `f64` (exact for `f32`).
+    fn to_f64(self) -> f64;
+
+    /// Narrows from `f64`, rounding to nearest for `f32`.
+    fn from_f64(x: f64) -> Self;
 }
 
 macro_rules! impl_float {
@@ -54,6 +60,16 @@ macro_rules! impl_float {
             #[inline]
             fn is_finite(self) -> bool {
                 <$t>::is_finite(self)
+            }
+
+            #[inline]
+            fn to_f64(self) -> f64 {
+                self as f64
+            }
+
+            #[inline]
+            fn from_f64(x: f64) -> Self {
+                x as $t
             }
         }
     };

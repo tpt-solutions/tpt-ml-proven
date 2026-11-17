@@ -1,4 +1,15 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 TPT Solutions
 
-//! Clustering estimators (KMeans in v0.1; DBSCAN and HDBSCAN on the roadmap).
+//! Clustering estimators for tpt-ml-proven.
+//!
+//! [`KMeans`] implements Lloyd's algorithm with k-means++ or random
+//! initialisation. Its contract is `docs/contracts/kmeans.tptc`.
+//!
+//! Enable the `parallel` feature for a multi-threaded assignment step. The
+//! results are the same for any thread count.
+
+pub mod kmeans;
+mod rng;
+
+pub use kmeans::{Init, KMeans};

@@ -1,8 +1,8 @@
 # KMeans contract, from docs/DESIGN.md §6.
-# Not implemented yet (Phase 3), so there is no `source` line and linkage is skipped.
 # Format and verification rules: docs/contracts/README.md
 
 contract kmeans
+source crates/tpt-ml-proven-clustering/src/kmeans.rs
 
 requires[rows_positive]: X.rows >= 1
 requires[k_positive]: k >= 1
