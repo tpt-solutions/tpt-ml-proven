@@ -9,5 +9,7 @@
 
 pub mod eigen;
 pub mod pca;
+pub mod svd;
 
 pub use pca::Pca;
+pub use svd::TruncatedSvd;

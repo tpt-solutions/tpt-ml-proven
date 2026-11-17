@@ -360,7 +360,7 @@ fn centers_flat<F: Float>(centers: &Dense<F>) -> Vec<F> {
 /// of summation is fixed, so the result is reproducible. Every path uses this same
 /// kernel, so sequential and parallel runs agree exactly.
 #[inline]
-fn sq_dist<F: Float>(a: &[F], b: &[F]) -> F {
+pub(crate) fn sq_dist<F: Float>(a: &[F], b: &[F]) -> F {
     let mut acc = [F::ZERO; 8];
     let (chunks_a, rest_a) = a.as_chunks::<8>();
     let (chunks_b, rest_b) = b.as_chunks::<8>();
@@ -395,7 +395,10 @@ fn nearest_row<F: Float>(row: &[F], centers: &[F], k: usize, cols: usize) -> (us
 
 /// Calls `f(r, row)` for every sample. A contiguous view is used in place. Other
 /// views have each row copied into one reused buffer.
-fn for_each_row<F: Float, X: ArrayView<Elem = F>>(x: &X, mut f: impl FnMut(usize, &[F])) {
+pub(crate) fn for_each_row<F: Float, X: ArrayView<Elem = F>>(
+    x: &X,
+    mut f: impl FnMut(usize, &[F]),
+) {
     let mut buf: Vec<F> = Vec::new();
     for r in 0..x.rows() {
         match x.row_slice(r) {

@@ -100,3 +100,29 @@ fn pca_full_rank_matches_scikit_learn() {
 fn pca_truncated_matches_scikit_learn() {
     check_pca("pca_correlated_k3");
 }
+
+/// TruncatedSVD (ARPACK in scikit-learn): singular values exactly, components up to sign.
+#[test]
+fn truncated_svd_matches_scikit_learn_arpack() {
+    use tpt_ml_proven_decomposition::TruncatedSvd;
+    let fx = load("svd_arpack_k2");
+    let rows: usize = fx["rows"][0].parse().unwrap();
+    let cols: usize = fx["cols"][0].parse().unwrap();
+    let k: usize = fx["n_components"][0].parse().unwrap();
+    let x = floats(&fx, "x");
+    let mut svd = TruncatedSvd::<f64>::new(k);
+    UnsupervisedEstimator::fit(&mut svd, DenseView::new(&x, rows, cols).unwrap()).unwrap();
+    for (i, &s) in floats(&fx, "singular_values").iter().enumerate() {
+        assert_close(svd.singular_values().unwrap()[i], s, &format!("sv[{i}]"));
+    }
+    let ours = svd.components().unwrap();
+    let theirs = floats(&fx, "components");
+    for c in 0..k {
+        let reference = &theirs[c * cols..(c + 1) * cols];
+        let dot: f64 = (0..cols).map(|j| ours[c][j] * reference[j]).sum();
+        let sign = if dot < 0.0 { -1.0 } else { 1.0 };
+        for (j, &r) in reference.iter().enumerate() {
+            assert_close(ours[c][j], sign * r, &format!("component[{c}][{j}]"));
+        }
+    }
+}
