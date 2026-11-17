@@ -1,0 +1,21 @@
+# Dev-only verification tool. It is deliberately NOT a member of the runtime
+# workspace (see `exclude` in the root Cargo.toml), so the library crates keep
+# zero solver dependencies. It may use any OSS licence (todo.md, dependency rule).
+[package]
+name = "tptc-verify"
+description = "Checks .tptc contract files: solver-verifies linear clauses and links every clause to a runtime check."
+version = "0.0.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+authors = ["TPT Solutions"]
+publish = false
+
+[workspace]
+
+[dependencies]
+# Pinned to a commit on tpt-solver's master. Update the rev deliberately.
+tpt-solver = { git = "https://github.com/tpt-solutions/tpt-solver", rev = "b50487dad6977ddf23f25d5149ca020d3c494720", package = "tpt-solver" }
+
+[[bin]]
+name = "tptc-verify"
+path = "src/main.rs"

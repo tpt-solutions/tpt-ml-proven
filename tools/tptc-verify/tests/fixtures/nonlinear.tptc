@@ -1,0 +1,6 @@
+# Nonlinear clauses: reported as unverified, never sent to the solver.
+contract fixture_nonlinear
+requires[pos]: a >= 1
+ensures[product]: a * a <= 1
+ensures[division]: 1 / a <= 1
+ensures[call]: inertia(a) <= 3

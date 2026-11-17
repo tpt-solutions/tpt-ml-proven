@@ -1,0 +1,5 @@
+# Contradictory requires: every ensures would hold vacuously.
+contract fixture_vacuous
+requires[lo]: x >= 1
+requires[hi]: x <= 0
+ensures[anything]: x >= 100

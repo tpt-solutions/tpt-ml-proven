@@ -1,0 +1,19 @@
+# KMeans contract, from docs/DESIGN.md §6.
+# Not implemented yet (Phase 3), so there is no `source` line and linkage is skipped.
+# Format and verification rules: docs/contracts/README.md
+
+contract kmeans
+
+requires[rows_positive]: X.rows >= 1
+requires[k_positive]: k >= 1
+requires[k_le_rows]: k <= X.rows
+
+# Provable from the requires clauses alone (QF_LRA): checked by the solver.
+ensures[k_within_rows]: k <= X.rows
+
+# Spec §6 wording is a quantified statement. Spec predicates become uninterpreted
+# calls here, so these clauses are reported as UNVERIFIED and checked at runtime
+# and by property tests instead.
+ensures[monotone_inertia]: inertia(state_t1) <= inertia(state_t)
+ensures[converged_means_stable]: converged(state_t) == 1 => stable(state_t, state_t1) == 1
+ensures[centers_in_hull]: in_convex_hull(center_c, X) == 1

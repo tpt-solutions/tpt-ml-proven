@@ -1,0 +1,4 @@
+# Negative fixture: k >= rows does not follow from k <= rows, so it must be disproved.
+contract fixture_false
+requires[k_le_rows]: k <= rows
+ensures[k_at_least_rows]: k >= rows
