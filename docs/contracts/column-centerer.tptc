@@ -1,0 +1,13 @@
+# Contract for ColumnCenterer (crates/tpt-ml-proven-core/src/toy.rs).
+# Format and verification rules: docs/contracts/README.md
+
+contract column_centerer
+source crates/tpt-ml-proven-core/src/toy.rs
+
+requires[rows_positive]: rows >= 1
+requires[cols_positive]: cols >= 1
+
+# Each column mean lies between that column's min and max (its convex hull in
+# one dimension). Division by a variable is not QF_LRA, so the solver does not
+# check this clause. The runtime check in fit() enforces it.
+ensures[mean_in_range]: sum_c / rows >= min_c && sum_c / rows <= max_c

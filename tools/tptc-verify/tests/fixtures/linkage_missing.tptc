@@ -1,0 +1,4 @@
+contract fixture_linkage
+source source_ok.rs
+requires[has_check]: x >= 1
+requires[no_check]: x >= 2

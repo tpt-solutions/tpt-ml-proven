@@ -1,0 +1,6 @@
+# Positive fixture. Requires bounds are not tight against the ensures, so the
+# proofs below exercise the solver's UNSAT path (see docs/contracts/README.md on strict bounds).
+contract fixture_good
+requires[x_positive]: x >= 2
+ensures[x_nonnegative]: x >= 0
+ensures[x_at_least_one]: x >= 1

@@ -1,0 +1,19 @@
+# PCA contract, from docs/DESIGN.md §6.
+# Not implemented yet (Phase 4), so there is no `source` line and linkage is skipped.
+# Format and verification rules: docs/contracts/README.md
+
+contract pca
+
+requires[rows_min]: X.rows >= 2
+requires[components_positive]: n_components >= 1
+requires[components_le_rows]: n_components <= X.rows
+requires[components_le_cols]: n_components <= X.cols
+
+# Provable from the requires clauses alone (QF_LRA): checked by the solver.
+ensures[components_within_rows]: n_components <= X.rows
+
+# Spec §6 properties, written as uninterpreted calls. Reported as UNVERIFIED and
+# enforced by runtime tolerance checks and property tests.
+ensures[orthogonality]: dot(component_i, component_j) == 0
+ensures[unit_norm]: norm(component_i) == 1
+ensures[variance_bound]: sum(explained_variance) <= total_variance

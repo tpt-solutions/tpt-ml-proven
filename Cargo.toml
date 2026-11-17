@@ -1,0 +1,26 @@
+[workspace]
+resolver = "2"
+# Dev-only verifier with its own lockfile and solver dependency (see tools/tptc-verify).
+exclude = ["tools/tptc-verify"]
+members = [
+    "crates/tpt-ml-proven-core",
+    "crates/tpt-ml-proven-clustering",
+    "crates/tpt-ml-proven-decomposition",
+    "crates/tpt-ml-proven-linear",
+    "crates/tpt-ml-proven-preprocessing",
+    "crates/tpt-ml-proven-ffi",
+]
+
+[workspace.package]
+version = "0.0.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+authors = ["TPT Solutions"]
+repository = "https://github.com/tpt-solutions/tpt-ml-proven"
+
+[workspace.lints.rust]
+missing_docs = "warn"
+unsafe_op_in_unsafe_fn = "deny"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }

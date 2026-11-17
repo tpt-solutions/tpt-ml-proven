@@ -1,0 +1,8 @@
+# Contract for MeanRegressor (crates/tpt-ml-proven-core/src/toy.rs).
+# Format and verification rules: docs/contracts/README.md
+
+contract mean_regressor
+source crates/tpt-ml-proven-core/src/toy.rs
+
+requires[rows_positive]: X.rows >= 1
+requires[rows_match_targets]: X.rows == y.len

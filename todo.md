@@ -8,46 +8,46 @@ Dependency rule: runtime deps must be MIT, MIT/Apache-2.0 dual, BSD, ISC, Zlib, 
 ---
 
 ## Phase 0 — Project setup & governance
-- [ ] Initialise git repo and `.gitignore`
-- [ ] Create Cargo workspace (`Cargo.toml`) with `crates/` layout from spec §7
-- [ ] Add `LICENSE-MIT` and `LICENSE-APACHE` (copyright: TPT Solutions)
-- [ ] Set `license = "MIT OR Apache-2.0"` and authors/repository metadata in every crate
-- [ ] Add SPDX headers (`MIT OR Apache-2.0`) convention to source files
-- [ ] Add `deny.toml` (cargo-deny): license allowlist, ban Apache-2.0-only crates, advisories check
-- [ ] Add `rustfmt.toml`, clippy config, `rust-toolchain.toml` (stable)
-- [ ] GitHub Actions skeleton: fmt, clippy, test, cargo-deny, on Linux/macOS/Windows
-- [ ] Add README stub, CONTRIBUTING.md (issues only)
-- [ ] Copy spec into `docs/DESIGN.md`; create `docs/contracts/` directory
-- [ ] Audit the dependency tree of tpt-math-*, tpt-formal and tpt-telos for Apache-only licenses (record result)
-- [ ] Add `ffi/python/` and `ffi/go/` placeholder directories
+- [x] Initialise git repo and `.gitignore`
+- [x] Create Cargo workspace (`Cargo.toml`) with `crates/` layout from spec §7
+- [x] Add `LICENSE-MIT` and `LICENSE-APACHE` (copyright: TPT Solutions)
+- [x] Set `license = "MIT OR Apache-2.0"` and authors/repository metadata in every crate
+- [x] Add SPDX headers (`MIT OR Apache-2.0`) convention to source files (documented in `CONTRIBUTING.md`, applied to every `lib.rs`)
+- [x] Add `deny.toml` (cargo-deny): license allowlist, ban Apache-2.0-only crates, advisories check
+- [x] Add `rustfmt.toml`, clippy config, `rust-toolchain.toml` (stable)
+- [x] GitHub Actions skeleton: fmt, clippy, test, cargo-deny, on Linux/macOS/Windows (`.github/workflows/ci.yml`; not yet run on GitHub)
+- [x] Add README stub, CONTRIBUTING.md (issues only)
+- [x] Copy spec into `docs/DESIGN.md`; create `docs/contracts/` directory
+- [x] Audit the dependency tree of tpt-math-*, tpt-formal and tpt-telos for Apache-only licenses (record result: `docs/dependency-audit.md`)
+- [x] Add `ffi/python/` and `ffi/go/` placeholder directories
 
 **Done when:** empty workspace builds, CI is green, cargo-deny passes.
 
 ## Phase 1 — Core crate (`tpt-ml-proven-core`)
-- [ ] Crate scaffold: `#![no_std]` + `alloc`, `std` feature flag
-- [ ] `ArrayView` trait: zero-copy over tpt-math-linalg-dense and tpt-math-linalg-sparse
-- [ ] `TargetView` trait for labels/targets
-- [ ] Generic float abstraction supporting `f32` and `f64`
-- [ ] `SupervisedEstimator` trait (`fit` returns `Result`)
-- [ ] `UnsupervisedEstimator` trait
-- [ ] `Predictor` trait
-- [ ] `Transformer` trait (`transform`, `fit_transform`)
-- [ ] Shared error types (fit errors, shape errors, contract violations)
-- [ ] Contract glue: macros/attributes for `requires` / `ensures`
-- [ ] Runtime assertion mode for data-dependent contracts (cheap checks, toggleable)
-- [ ] Compile-time checks for static shapes / constant parameters
-- [ ] Composition via generics/impl blocks (no runtime Pipeline object) — design + example
-- [ ] Unit tests, docs, doc-tests
+- [x] Crate scaffold: `#![no_std]` + `alloc`, `std` feature flag
+- [x] `ArrayView` trait: zero-copy over borrowed/owned row-major data (`DenseView`, `Dense`). Adapters for tpt-math-linalg-dense / -sparse are deferred to the algorithm crates so core stays dependency-free
+- [x] `TargetView` trait for labels/targets (impl for `&[T]`)
+- [x] Generic float abstraction supporting `f32` and `f64` (own `Float` trait, no `libm` dependency)
+- [x] `SupervisedEstimator` trait (`fit` returns `Result`)
+- [x] `UnsupervisedEstimator` trait
+- [x] `Predictor` trait (`predict` returns `Result`)
+- [x] `Transformer` trait (`transform`, `fit_transform`)
+- [x] Shared error types (fit errors, shape errors, contract violations)
+- [x] Contract glue: macros for `requires!` / `ensures!` (attribute form deferred)
+- [x] Runtime assertion mode for data-dependent contracts (cheap checks, toggleable via `runtime-contracts` feature)
+- [x] Compile-time checks for static shapes / constant parameters (`static_require!`, works with const generics)
+- [x] Composition via generics/impl blocks (no runtime Pipeline object) — design + example (crate docs and `tests/traits.rs`)
+- [x] Unit tests, docs, doc-tests
 
-**Done when:** core compiles under `no_std + alloc`, traits documented and exercised by a toy estimator.
+**Done when:** core compiles under `no_std + alloc`, traits documented and exercised by a toy estimator. ✅ (`ColumnCenterer` and `MeanRegressor` in `tpt-ml-proven-core::toy`)
 
 ## Phase 2 — Verification infrastructure
-- [ ] Integrate tpt-formal contract language and the self-contained QF_LRA solver (no Z3)
-- [ ] Define `.tptc` file format conventions and naming (one per algorithm in `docs/contracts/`)
-- [ ] Contract-to-code linkage: map each `.tptc` clause to a runtime assertion or static check
-- [ ] CI job that solver-verifies every `.tptc` file
-- [ ] Negative tests: deliberately false contracts must fail verification
-- [ ] Developer guide: how to write and verify a contract
+- [ ] Integrate tpt-formal contract language and the self-contained QF_LRA solver (no Z3) — partial: QF_LRA is `tpt-solver` (git dep in `tools/tptc-verify`, pinned rev). The `.tptc` syntax is our own; `tpt-formal`'s contract crate is not used yet
+- [x] Define `.tptc` file format conventions and naming (one per algorithm in `docs/contracts/`; see `docs/contracts/README.md`)
+- [x] Contract-to-code linkage: map each `.tptc` clause to a runtime assertion or static check (`"name.id"` literal, checked by `tptc-verify`)
+- [x] CI job that solver-verifies every `.tptc` file (`contracts` job in `.github/workflows/ci.yml`; needs tpt-solver pushed to GitHub first)
+- [x] Negative tests: deliberately false contracts must fail verification (`tools/tptc-verify/tests/verify.rs`)
+- [x] Developer guide: how to write and verify a contract (`docs/contracts/README.md`)
 
 **Done when:** CI fails on any unverified or broken contract and passes on the sample contracts.
 

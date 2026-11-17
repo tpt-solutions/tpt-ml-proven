@@ -1,0 +1,19 @@
+[package]
+name = "tpt-ml-proven-core"
+description = "Estimator traits, contract glue and shared errors for tpt-ml-proven (no_std + alloc)."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+readme = "../../README.md"
+
+[features]
+default = ["std", "runtime-contracts"]
+std = []
+# Compile in the data-dependent requires!/ensures! checks. Disable for hot
+# loops where the checks cost too much; the clauses still type-check.
+runtime-contracts = []
+
+[lints]
+workspace = true
