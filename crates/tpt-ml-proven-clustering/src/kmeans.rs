@@ -640,13 +640,12 @@ fn chunk_partials<F: Float, X: ArrayView<Elem = F>>(
     chunks: usize,
     threads: usize,
 ) -> Vec<Partial<F>> {
-    // Computed here, so the threads capture a plain number and not `x` itself.
-    // The generic view is not required to be `Sync`.
-    let rows = x.rows();
     #[cfg(feature = "parallel")]
     {
         if let Some(data) = dense {
             if threads > 1 && chunks > 1 {
+                // A plain number, not `x`: the generic view is not required to be `Sync`.
+                let rows = x.rows();
                 let workers = threads.min(chunks);
                 let mut indexed: Vec<(usize, Partial<F>)> = std::thread::scope(|s| {
                     let handles: Vec<_> = (0..workers)
