@@ -327,3 +327,24 @@ fn parallel_assignment_matches_sequential_exactly() {
     assert_eq!(one.inertia(), four.inertia());
     assert_eq!(one.cluster_centers(), four.cluster_centers());
 }
+
+#[test]
+fn explicit_initial_centres_are_used_and_length_checked() {
+    let data = blobs();
+    let x = DenseView::new(&data, 6, 2).unwrap();
+    // Starting exactly at the two blob centres gives the obvious partition.
+    let mut km = KMeans::<f64>::new(2).with_initial_centers(vec![0.0, 0.0, 10.0, 10.0]);
+    UnsupervisedEstimator::fit(&mut km, x).unwrap();
+    assert_eq!(canonical(km.labels().unwrap()), vec![0, 0, 0, 1, 1, 1]);
+
+    let mut bad = KMeans::<f64>::new(2).with_initial_centers(vec![0.0, 0.0, 10.0]);
+    let err =
+        UnsupervisedEstimator::fit(&mut bad, DenseView::new(&data, 6, 2).unwrap()).unwrap_err();
+    assert!(matches!(
+        err,
+        Error::InvalidParameter {
+            name: "initial_centers",
+            ..
+        }
+    ));
+}
