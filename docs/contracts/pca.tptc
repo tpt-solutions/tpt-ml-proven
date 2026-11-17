@@ -1,8 +1,8 @@
 # PCA contract, from docs/DESIGN.md §6.
-# Not implemented yet (Phase 4), so there is no `source` line and linkage is skipped.
 # Format and verification rules: docs/contracts/README.md
 
 contract pca
+source crates/tpt-ml-proven-decomposition/src/pca.rs
 
 requires[rows_min]: X.rows >= 2
 requires[components_positive]: n_components >= 1
