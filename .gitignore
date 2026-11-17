@@ -1,5 +1,6 @@
 # Rust
 /target/
+tools/*/target/
 **/*.rs.bk
 # Library crates: commit Cargo.lock only for binaries; uncomment to track
 # Cargo.lock
