@@ -45,3 +45,9 @@ Thumbs.db
 
 # Claude Code local
 .claude/settings.local.json
+
+# FFI build outputs (standalone crates under ffi/)
+ffi/*/target/
+ffi/python/.venv/
+ffi/wasm/pkg/
+ffi/wasm/node_modules/

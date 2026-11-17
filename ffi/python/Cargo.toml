@@ -1,0 +1,22 @@
+# Python extension module (PyO3 + maturin). Standalone workspace, so the Python
+# toolchain never enters the runtime build of the library crates.
+[package]
+name = "tpt-ml-proven-py"
+description = "Python bindings for tpt-ml-proven (KMeans, PCA)."
+version = "0.0.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+authors = ["TPT Solutions"]
+publish = false
+
+[workspace]
+
+[lib]
+name = "tpt_ml_proven"
+crate-type = ["cdylib"]
+
+[dependencies]
+pyo3 = { version = "0.30", features = ["extension-module", "abi3-py39"] }
+tpt-ml-proven-core = { path = "../../crates/tpt-ml-proven-core" }
+tpt-ml-proven-clustering = { path = "../../crates/tpt-ml-proven-clustering", features = ["parallel"] }
+tpt-ml-proven-decomposition = { path = "../../crates/tpt-ml-proven-decomposition" }

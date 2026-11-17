@@ -1,0 +1,24 @@
+[build-system]
+requires = ["maturin>=1.5,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "tpt-ml-proven"
+version = "0.0.0"
+description = "Classical machine learning with contract-checked algorithms (KMeans, PCA)"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT OR Apache-2.0" }
+authors = [{ name = "TPT Solutions" }]
+classifiers = [
+    "Programming Language :: Rust",
+    "Programming Language :: Python :: 3",
+    "Topic :: Scientific/Engineering :: Mathematics",
+]
+
+[project.urls]
+Homepage = "https://github.com/tpt-solutions/tpt-ml-proven"
+Repository = "https://github.com/tpt-solutions/tpt-ml-proven"
+
+[tool.maturin]
+module-name = "tpt_ml_proven"
