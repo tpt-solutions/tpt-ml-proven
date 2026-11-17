@@ -80,8 +80,8 @@ Dependency rule: runtime deps must be MIT, MIT/Apache-2.0 dual, BSD, ISC, Zlib, 
 **Done when:** PCA contracts verify in CI and results are stable across platforms.
 
 ## Phase 5 — scikit-learn parity & benchmarks
-- [x] Pinned generator script (offline, uses a fixed scikit-learn version) producing KMeans and PCA reference vectors (, pinned to 1.9.0)
-- [x] Commit fixtures (so CI never needs scikit-learn for correctness) ()
+- [x] Pinned generator script (offline, uses a fixed scikit-learn version) producing KMeans and PCA reference vectors (`tools/parity/generate_fixtures.py`, pinned to 1.9.0)
+- [x] Commit fixtures (so CI never needs scikit-learn for correctness) (`tools/parity/fixtures/`)
 - [x] Parity tests in `f64` within 1e-9 tolerance (KMeans, PCA)
 - [x] Document unavoidable differences (init RNG, sign flips) and how tests normalise them (`docs/parity.md`)
 - [x] Benchmark harness: KMeans.fit on 1M × 50 `f32` (`examples/bench_kmeans.rs`)
