@@ -124,31 +124,31 @@ Dependency rule: runtime deps must be MIT, MIT/Apache-2.0 dual, BSD, ISC, Zlib, 
 **Done when:** v0.1.0 is installable from crates.io, PyPI and via `go get`.
 
 ## Phase 8 — Roadmap: remaining algorithms
-Each item gets: crate code, `.tptc` contract, scikit-learn parity fixtures, FFI exposure, tests.
+Each item gets: crate code, `.tptc` contract, scikit-learn parity fixtures, FFI exposure, tests. Done so far: crate code, parity fixtures and tests. Not yet: `.tptc` contracts and FFI exposure for these algorithms.
 
 ### Clustering
-- [ ] DBSCAN
-- [ ] HDBSCAN
+- [x] DBSCAN — exact label parity with scikit-learn (`dbscan_blobs_noise`)
+- [ ] HDBSCAN — not started
 
 ### Decomposition
-- [ ] TruncatedSVD (sparse-friendly)
-- [ ] NMF
+- [x] TruncatedSVD — singular values and components match scikit-learn ARPACK (`svd_arpack_k2`). Dense only so far
+- [ ] NMF — not started
 
 ### Linear models (`tpt-ml-proven-linear`)
-- [ ] Ridge
-- [ ] Lasso
-- [ ] ElasticNet
-- [ ] Logistic regression
+- [x] Ridge — closed form, matches scikit-learn (`linear_ridge`)
+- [x] Lasso — coordinate descent, matches scikit-learn (`linear_lasso`)
+- [x] ElasticNet — coordinate descent, matches scikit-learn (`linear_elasticnet`)
+- [ ] Logistic regression — not started
 
 ### Preprocessing (`tpt-ml-proven-preprocessing`)
-- [ ] Scalers (Standard, MinMax, Robust)
-- [ ] Encoders (OneHot, Ordinal)
-- [ ] Imputers (Simple)
+- [x] Scalers (Standard, MinMax, Robust) — unit tests with hand-computed values; scikit-learn fixtures not yet generated
+- [x] Encoders (OneHot, Ordinal) — unit tests; unknown categories are an error
+- [x] Imputers (Simple: mean, median, most frequent, constant) — unit tests
 
 ### Ensemble
-- [ ] Stump forests (numeric verification story)
+- [ ] Stump forests — not started
 
-- [ ] Update README/docs and release as v0.x increments
+- [ ] Update README/docs and release as v0.x increments — README and CHANGELOG not yet updated for these
 
 ## Phase 9 — v0.2
 - [ ] Design stable on-disk model format (replace interim bincode/serde)

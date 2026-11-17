@@ -125,3 +125,30 @@ fn kmeans_uniform_matches_scikit_learn() {
 fn kmeans_single_cluster_matches_scikit_learn() {
     check_kmeans("kmeans_one_cluster");
 }
+
+/// DBSCAN labels must match scikit-learn exactly: both sides use the same labelling
+/// order, so no normalisation is needed.
+#[test]
+fn dbscan_matches_scikit_learn_exactly() {
+    use tpt_ml_proven_clustering::Dbscan;
+    let fx = Fixture::load("dbscan_blobs_noise");
+    let (rows, cols) = (fx.usize("rows"), fx.usize("cols"));
+    let x = fx.floats("x");
+    let eps: f64 = fx.raw("eps")[0].parse().unwrap();
+    let min_samples = fx.usize("min_samples");
+
+    let mut db = Dbscan::new(eps, min_samples);
+    UnsupervisedEstimator::fit(&mut db, DenseView::new(&x, rows, cols).unwrap()).unwrap();
+
+    let expected: Vec<i64> = fx
+        .raw("labels")
+        .iter()
+        .map(|s| s.parse().unwrap())
+        .collect();
+    assert_eq!(db.labels().unwrap(), expected.as_slice(), "labels");
+    assert_eq!(
+        db.core_sample_indices().unwrap(),
+        fx.ints("core").as_slice(),
+        "core samples"
+    );
+}

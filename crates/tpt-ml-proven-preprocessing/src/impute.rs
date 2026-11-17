@@ -1,0 +1,207 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 TPT Solutions
+
+//! Missing-value imputation. A missing value is NaN. Unlike the other estimators, the
+//! imputer accepts NaN in its input, since that is what it is for.
+
+use tpt_ml_proven_core::error::{Error, ShapeError};
+use tpt_ml_proven_core::{ArrayView, Dense, Float, Transformer, UnsupervisedEstimator};
+
+/// How the fill value for each column is chosen.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum ImputeStrategy {
+    /// The mean of the observed values.
+    Mean,
+    /// The median of the observed values.
+    Median,
+    /// The most frequent observed value. Ties go to the smallest value.
+    MostFrequent,
+    /// A fixed value.
+    Constant(f64),
+}
+
+/// Fills NaN entries with a per-column statistic learned in `fit`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SimpleImputer<F: Float> {
+    strategy: ImputeStrategy,
+    fill: Option<Vec<f64>>,
+    marker: core::marker::PhantomData<F>,
+}
+
+impl<F: Float> SimpleImputer<F> {
+    /// An unfitted imputer with the given strategy.
+    pub fn new(strategy: ImputeStrategy) -> Self {
+        Self {
+            strategy,
+            fill: None,
+            marker: core::marker::PhantomData,
+        }
+    }
+
+    /// Learned fill value for each column.
+    pub fn statistics(&self) -> Option<&[f64]> {
+        self.fill.as_deref()
+    }
+}
+
+fn observed<F: Float, X: ArrayView<Elem = F>>(x: &X, c: usize) -> Vec<f64> {
+    (0..x.rows())
+        .map(|r| x.get(r, c).to_f64())
+        .filter(|v| !v.is_nan())
+        .collect()
+}
+
+fn statistic(strategy: ImputeStrategy, mut vals: Vec<f64>) -> Option<f64> {
+    if let ImputeStrategy::Constant(v) = strategy {
+        return Some(v);
+    }
+    if vals.is_empty() {
+        return None;
+    }
+    match strategy {
+        ImputeStrategy::Mean => Some(vals.iter().sum::<f64>() / vals.len() as f64),
+        ImputeStrategy::Median => {
+            vals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(core::cmp::Ordering::Equal));
+            let n = vals.len();
+            Some(if n % 2 == 1 {
+                vals[n / 2]
+            } else {
+                (vals[n / 2 - 1] + vals[n / 2]) / 2.0
+            })
+        }
+        ImputeStrategy::MostFrequent => {
+            vals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(core::cmp::Ordering::Equal));
+            let (mut best, mut best_count) = (vals[0], 0);
+            let mut i = 0;
+            while i < vals.len() {
+                let mut j = i;
+                while j < vals.len() && vals[j] == vals[i] {
+                    j += 1;
+                }
+                if j - i > best_count {
+                    best = vals[i];
+                    best_count = j - i;
+                }
+                i = j;
+            }
+            Some(best)
+        }
+        ImputeStrategy::Constant(_) => unreachable!("handled above"),
+    }
+}
+
+impl<F: Float> UnsupervisedEstimator for SimpleImputer<F> {
+    type Float = F;
+    type FitError = Error;
+
+    fn fit<X>(&mut self, x: X) -> Result<(), Error>
+    where
+        X: ArrayView<Elem = F>,
+    {
+        self.fill = None;
+        if x.rows() == 0 || x.cols() == 0 {
+            return Err(Error::EmptyInput);
+        }
+        let mut fill = Vec::with_capacity(x.cols());
+        for c in 0..x.cols() {
+            let v = statistic(self.strategy, observed(&x, c)).ok_or(Error::InvalidParameter {
+                name: "X",
+                reason: "a column has no observed values to learn a fill value from",
+            })?;
+            fill.push(v);
+        }
+        self.fill = Some(fill);
+        Ok(())
+    }
+}
+
+impl<F: Float> Transformer for SimpleImputer<F> {
+    type Float = F;
+    type Output = Dense<F>;
+
+    fn transform<X>(&self, x: X) -> Result<Dense<F>, Error>
+    where
+        X: ArrayView<Elem = F>,
+    {
+        let fill = self.fill.as_ref().ok_or(Error::NotFitted)?;
+        if x.cols() != fill.len() {
+            return Err(Error::Shape(ShapeError {
+                rows: x.rows(),
+                cols: x.cols(),
+                reason: "feature count differs from the fitted imputer",
+            }));
+        }
+        let mut out = Vec::with_capacity(x.rows() * x.cols());
+        for r in 0..x.rows() {
+            for (c, &f) in fill.iter().enumerate() {
+                let v = x.get(r, c);
+                out.push(if v.is_finite() { v } else { F::from_f64(f) });
+            }
+        }
+        Ok(Dense::from_vec(out, x.rows(), x.cols())?)
+    }
+
+    fn fit_transform<X>(&mut self, x: X) -> Result<Dense<F>, Error>
+    where
+        X: ArrayView<Elem = F>,
+    {
+        UnsupervisedEstimator::fit(self, &x)?;
+        self.transform(x)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tpt_ml_proven_core::DenseView;
+
+    const NAN: f64 = f64::NAN;
+
+    fn impute(strategy: ImputeStrategy, data: &[f64], rows: usize, cols: usize) -> Vec<f64> {
+        let mut imp = SimpleImputer::new(strategy);
+        imp.fit_transform(DenseView::new(data, rows, cols).unwrap())
+            .unwrap()
+            .into_vec()
+    }
+
+    #[test]
+    fn mean_and_median_fill_observed_statistics() {
+        let data = [1.0_f64, NAN, 3.0, 10.0, NAN, 30.0];
+        assert_eq!(
+            impute(ImputeStrategy::Mean, &data, 3, 2),
+            vec![1.0, 20.0, 3.0, 10.0, 2.0, 30.0]
+        );
+        let data = [1.0_f64, NAN, 2.0, 10.0, 9.0, 30.0];
+        assert_eq!(
+            impute(ImputeStrategy::Median, &data, 3, 2),
+            vec![1.0, 20.0, 2.0, 10.0, 9.0, 30.0]
+        );
+    }
+
+    #[test]
+    fn most_frequent_breaks_ties_towards_the_smallest() {
+        // Column 0 is [2, NaN, 1]: the observed values tie at 1 and 2, so the fill is 1.
+        let data = [2.0_f64, 2.0, NAN, 1.0, 1.0, 3.0];
+        let out = impute(ImputeStrategy::MostFrequent, &data, 3, 2);
+        assert_eq!(out[2], 1.0);
+    }
+
+    #[test]
+    fn constant_fills_without_looking_at_data() {
+        let data = [NAN, 5.0, 2.0, NAN];
+        assert_eq!(
+            impute(ImputeStrategy::Constant(-1.0), &data, 2, 2),
+            vec![-1.0, 5.0, 2.0, -1.0]
+        );
+    }
+
+    #[test]
+    fn all_missing_column_is_an_error() {
+        let data = [NAN, 1.0, NAN, 2.0];
+        let mut imp = SimpleImputer::new(ImputeStrategy::Mean);
+        assert!(matches!(
+            UnsupervisedEstimator::fit(&mut imp, DenseView::new(&data, 2, 2).unwrap()),
+            Err(Error::InvalidParameter { .. })
+        ));
+    }
+}

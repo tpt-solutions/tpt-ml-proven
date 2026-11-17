@@ -33,8 +33,9 @@ from pathlib import Path
 
 import numpy as np
 import sklearn
-from sklearn.cluster import KMeans
-from sklearn.decomposition import PCA
+from sklearn.cluster import DBSCAN, KMeans
+from sklearn.linear_model import ElasticNet, Lasso, Ridge
+from sklearn.decomposition import PCA, TruncatedSVD
 
 PINNED = "1.9.0"
 OUT = Path(__file__).resolve().parent / "fixtures"
@@ -99,6 +100,46 @@ def pca_case(name, x, k):
     )
 
 
+def dbscan_case(name, x, eps, min_samples):
+    model = DBSCAN(eps=eps, min_samples=min_samples, algorithm="brute").fit(x)
+    write(
+        name,
+        [("kind", "dbscan"), ("rows", x.shape[0]), ("cols", x.shape[1]), ("eps", f"{eps:.17g}"), ("min_samples", min_samples)],
+        [
+            ("x", fmt(x)),
+            ("labels", " ".join(str(int(v)) for v in model.labels_)),
+            ("core", " ".join(str(int(v)) for v in model.core_sample_indices_)),
+        ],
+    )
+
+
+def linear_case(name, model, x, y, params):
+    model.fit(x, y)
+    write(
+        name,
+        [("kind", "linear"), ("model", params["model"]), ("rows", x.shape[0]), ("cols", x.shape[1]), ("alpha", f"{params['alpha']:.17g}"), ("l1_ratio", f"{params.get('l1_ratio', 0.0):.17g}")],
+        [
+            ("x", fmt(x)),
+            ("y", fmt(y)),
+            ("coef", fmt(model.coef_)),
+            ("intercept", f"{float(model.intercept_):.17g}"),
+        ],
+    )
+
+
+def svd_case(name, x, k):
+    model = TruncatedSVD(n_components=k, algorithm="arpack", random_state=0).fit(x)
+    write(
+        name,
+        [("kind", "svd"), ("rows", x.shape[0]), ("cols", x.shape[1]), ("n_components", k)],
+        [
+            ("x", fmt(x)),
+            ("singular_values", fmt(model.singular_values_)),
+            ("components", fmt(model.components_)),
+        ],
+    )
+
+
 def main():
     if sklearn.__version__ != PINNED:
         raise SystemExit(
@@ -120,6 +161,24 @@ def main():
     correlated = rng.standard_normal((80, 5)) @ mixing
     pca_case("pca_correlated_full", correlated, 5)
     pca_case("pca_correlated_k3", correlated, 3)
+
+    # DBSCAN: separate rng so the fixtures above are unchanged.
+    rng2 = np.random.default_rng(777)
+    groups = np.vstack([c + 0.25 * rng2.standard_normal((40, 2)) for c in [np.array([0.0, 0.0]), np.array([3.0, 3.0]), np.array([0.0, 4.0])]])
+    noise = rng2.uniform(-2, 6, size=(12, 2))
+    dbscan_case("dbscan_blobs_noise", np.vstack([groups, noise]), eps=0.6, min_samples=5)
+
+    # TruncatedSVD on uncentred data.
+    svd_x = correlated + 1.5
+    svd_case("svd_arpack_k2", svd_x, 2)
+
+    # Linear models: a noisy linear target, with its own rng.
+    rng3 = np.random.default_rng(4242)
+    xr = rng3.standard_normal((60, 4))
+    yr = xr @ np.array([1.5, -2.0, 0.0, 0.5]) + 0.3 + 0.1 * rng3.standard_normal(60)
+    linear_case("linear_ridge", Ridge(alpha=1.0), xr, yr, {"model": "ridge", "alpha": 1.0})
+    linear_case("linear_lasso", Lasso(alpha=0.05, tol=1e-12, max_iter=100000), xr, yr, {"model": "lasso", "alpha": 0.05})
+    linear_case("linear_elasticnet", ElasticNet(alpha=0.05, l1_ratio=0.5, tol=1e-12, max_iter=100000), xr, yr, {"model": "elasticnet", "alpha": 0.05, "l1_ratio": 0.5})
 
 
 if __name__ == "__main__":
