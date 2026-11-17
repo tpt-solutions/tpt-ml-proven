@@ -101,7 +101,7 @@ Dependency rule: runtime deps must be MIT, MIT/Apache-2.0 dual, BSD, ISC, Zlib, 
 - [x] **WASM:** wasm-bindgen / wasm-pack build exposing KMeans and PCA (`ffi/wasm`, Node target)
 - [x] Binding tests for Python (12) and WASM (7), including f32/f64 and error propagation. Go: not yet (see below)
 - [x] Usage examples for Python and WASM (`ffi/python/README.md`, `ffi/wasm/README.md`). Go: not yet
-- [ ] CI jobs building and testing all three bindings. Go is blocked locally: no C compiler on this machine and `CGO_ENABLED=0`
+- [ ] CI jobs building and testing all three bindings. Added: Python wheel on Linux, macOS and Windows (pytest); WASM (Node tests); C ABI (tests and header check). Go job pending the Go package. Go is blocked locally: no C compiler on this machine and `CGO_ENABLED=0`
 
 **Done when:** KMeans and PCA run from Python, Go and WASM in CI on all three OSes.
 
