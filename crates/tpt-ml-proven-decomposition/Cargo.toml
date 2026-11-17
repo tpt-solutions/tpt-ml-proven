@@ -8,5 +8,8 @@ authors.workspace = true
 repository.workspace = true
 readme = "../../README.md"
 
+[dependencies]
+tpt-ml-proven-core.workspace = true
+
 [lints]
 workspace = true

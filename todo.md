@@ -67,15 +67,15 @@ Dependency rule: runtime deps must be MIT, MIT/Apache-2.0 dual, BSD, ISC, Zlib, 
 **Done when:** KMeans works on dense and sparse data and its contracts verify in CI. ✅ locally (CI contracts job not yet run on GitHub)
 
 ## Phase 4 — PCA (`tpt-ml-proven-decomposition`)
-- [ ] Crate scaffold depending only on core + needed tpt-math leaves
-- [ ] Integrate tpt-math-linalg-dense eigensolver / SVD
-- [ ] Centering, component selection, explained variance (+ ratio)
-- [ ] `fit` / `transform` / `inverse_transform` / `fit_transform`
-- [ ] Deterministic sign convention for components
-- [ ] Generic over `f32` and `f64`
-- [ ] `docs/contracts/pca.tptc`: requires (rows ≥ 2, 1 ≤ n_components ≤ min(rows, cols)); ensures (orthogonality, unit norm, Σ explained_variance ≤ total_variance)
-- [ ] Runtime assertions with numerical tolerance for orthogonality/unit-norm
-- [ ] Unit + property tests (rank-deficient data, constant columns, n_components bounds)
+- [x] Crate scaffold depending only on core (no tpt-math leaves)
+- [x] Eigensolver: own cyclic Jacobi decomposition (`eigen.rs`) in place of tpt-math-linalg-dense, so the crate has no external dependency. Computation is in f64
+- [x] Centering, component selection, explained variance (+ ratio), total variance
+- [x] `fit` / `transform` / `inverse_transform` / `fit_transform`
+- [x] Deterministic sign convention for components (largest-magnitude entry positive)
+- [x] Generic over `f32` and `f64`
+- [x] `docs/contracts/pca.tptc`: requires (rows ≥ 2, 1 ≤ n_components ≤ min(rows, cols)); ensures (orthogonality, unit norm, Σ explained_variance ≤ total_variance)
+- [x] Runtime assertions with numerical tolerance for orthogonality/unit-norm (1e-8, in f64 before rounding)
+- [x] Unit + property tests (rank-deficient data, constant columns, n_components bounds)
 
 **Done when:** PCA contracts verify in CI and results are stable across platforms.
 
