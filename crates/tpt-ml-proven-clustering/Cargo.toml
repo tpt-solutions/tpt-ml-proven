@@ -6,7 +6,9 @@ edition.workspace = true
 license.workspace = true
 authors.workspace = true
 repository.workspace = true
-readme = "../../README.md"
+readme = "README.md"
+keywords = ["kmeans", "clustering", "machine-learning", "scikit-learn", "formal-verification"]
+categories = ["algorithms", "science"]
 
 [features]
 default = []

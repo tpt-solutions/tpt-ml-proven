@@ -6,7 +6,9 @@ edition.workspace = true
 license.workspace = true
 authors.workspace = true
 repository.workspace = true
-readme = "../../README.md"
+readme = "README.md"
+keywords = ["ffi", "python", "pyo3", "wasm", "cgo"]
+categories = ["external-ffi-bindings", "development-tools::ffi", "wasm"]
 
 [lints]
 workspace = true

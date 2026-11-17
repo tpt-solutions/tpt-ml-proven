@@ -6,7 +6,9 @@ edition.workspace = true
 license.workspace = true
 authors.workspace = true
 repository.workspace = true
-readme = "../../README.md"
+readme = "README.md"
+keywords = ["preprocessing", "scaler", "encoder", "imputer", "machine-learning"]
+categories = ["algorithms", "science"]
 
 [lints]
 workspace = true
