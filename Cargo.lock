@@ -27,7 +27,13 @@ version = "0.0.0"
 [[package]]
 name = "tpt-ml-proven-linear"
 version = "0.0.0"
+dependencies = [
+ "tpt-ml-proven-core",
+]
 
 [[package]]
 name = "tpt-ml-proven-preprocessing"
 version = "0.0.0"
+dependencies = [
+ "tpt-ml-proven-core",
+]
