@@ -1,0 +1,46 @@
+# Rust
+/target/
+**/*.rs.bk
+# Library crates: commit Cargo.lock only for binaries; uncomment to track
+# Cargo.lock
+
+# Python (ffi/python)
+__pycache__/
+*.py[cod]
+*.so
+*.pyd
+.venv/
+venv/
+dist/
+build/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Go (ffi/go)
+*.test
+*.out
+vendor/
+
+# Build artifacts
+*.dll
+*.dylib
+*.a
+*.lib
+*.rlib
+
+# Editors / OS
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+
+# Env / local
+.env
+.env.*
+*.log
+
+# Claude Code local
+.claude/settings.local.json
