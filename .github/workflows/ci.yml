@@ -97,3 +97,67 @@ jobs:
           workspaces: tools/tptc-verify
       - run: cargo test --manifest-path tools/tptc-verify/Cargo.toml
       - run: cargo run --manifest-path tools/tptc-verify/Cargo.toml -- docs/contracts
+
+  # Python wheel built with maturin (abi3, Python 3.9+), installed into a fresh
+  # venv with no C compiler involved, then tested. Runs on all three OSes.
+  python-bindings:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: ffi/python
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ffi/python
+      - run: python -m pip install maturin numpy pytest
+      - run: maturin build --release --out dist
+      - run: python -m pip install --force-reinstall dist/*.whl
+      - run: python -m pytest -q tests
+        working-directory: ffi/python
+
+  # WebAssembly build with wasm-pack, tested under Node.
+  wasm-bindings:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ffi/wasm
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ffi/wasm
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: cargo install wasm-pack --locked
+      - run: wasm-pack build --target nodejs --release --no-opt --out-dir pkg
+      - run: node --test tests/bindings.test.mjs
+
+  # C ABI tests, and a check that the committed header matches the Rust source.
+  c-abi:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ffi/c
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ffi/c
+      - run: cargo test
+      - run: cargo install cbindgen --locked
+      - run: cbindgen --config cbindgen.toml --crate tpt-ml-proven-c --output include/tpt_ml_proven.h
+      - run: git diff --exit-code -- include/tpt_ml_proven.h

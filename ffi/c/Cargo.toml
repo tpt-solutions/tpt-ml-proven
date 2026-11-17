@@ -1,0 +1,21 @@
+# C ABI over the estimators, for cgo and other C-compatible callers. Standalone
+# workspace, like the other bindings.
+[package]
+name = "tpt-ml-proven-c"
+description = "C ABI for tpt-ml-proven (KMeans, PCA), used by the Go binding."
+version = "0.0.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+authors = ["TPT Solutions"]
+publish = false
+
+[workspace]
+
+[lib]
+name = "tpt_ml_proven"
+crate-type = ["cdylib", "staticlib", "rlib"]
+
+[dependencies]
+tpt-ml-proven-core = { path = "../../crates/tpt-ml-proven-core" }
+tpt-ml-proven-clustering = { path = "../../crates/tpt-ml-proven-clustering" }
+tpt-ml-proven-decomposition = { path = "../../crates/tpt-ml-proven-decomposition" }
