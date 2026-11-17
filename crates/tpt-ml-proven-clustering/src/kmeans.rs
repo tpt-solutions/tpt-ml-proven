@@ -578,18 +578,27 @@ impl<F: Float> Partial<F> {
     }
 
     fn add(&mut self, c: usize, row: &[F]) {
-        let first = self.counts[c] == 0;
+        let cols = row.len();
+        let base = c * cols;
+        if self.counts[c] == 0 {
+            // First member: the range starts at this row.
+            self.lo[base..base + cols].copy_from_slice(row);
+            self.hi[base..base + cols].copy_from_slice(row);
+        }
         self.counts[c] += 1;
-        let base = c * row.len();
-        for (j, &v) in row.iter().enumerate() {
-            let idx = base + j;
-            self.sums[idx] = self.sums[idx] + v;
-            if first || v < self.lo[idx] {
-                self.lo[idx] = v;
-            }
-            if first || v > self.hi[idx] {
-                self.hi[idx] = v;
-            }
+        // Slice iterators with branch-free min and max, so the loop vectorises.
+        let sums = &mut self.sums[base..base + cols];
+        let lo = &mut self.lo[base..base + cols];
+        let hi = &mut self.hi[base..base + cols];
+        for (((s, l), h), &v) in sums
+            .iter_mut()
+            .zip(lo.iter_mut())
+            .zip(hi.iter_mut())
+            .zip(row)
+        {
+            *s = *s + v;
+            *l = if v < *l { v } else { *l };
+            *h = if v > *h { v } else { *h };
         }
     }
 }
