@@ -161,3 +161,44 @@ jobs:
       - run: cargo install cbindgen --locked
       - run: cbindgen --config cbindgen.toml --crate tpt-ml-proven-c --output include/tpt_ml_proven.h
       - run: git diff --exit-code -- include/tpt_ml_proven.h
+
+  # KMeans benchmark against scikit-learn, as a report only: it never fails the build, and the
+  # numbers depend on the runner. Results go to the job summary and an uploaded artifact.
+  benchmark:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: python -m pip install numpy scikit-learn==1.9.0 threadpoolctl
+      - name: Time scikit-learn
+        run: |
+          mkdir -p target/bench
+          python tools/parity/bench_kmeans.py > target/bench/sklearn.json
+      - name: Time tpt-ml-proven
+        run: |
+          cargo run --release -p tpt-ml-proven-clustering --example bench_kmeans --features parallel -- \
+            target/bench/kmeans_1000000x50_f32.bin 1000000 50 8 20 1,$(nproc) | tee target/bench/tpt-ml-proven.txt
+      - name: Summary
+        run: |
+          {
+            echo "## KMeans benchmark (report only)"
+            echo
+            echo "### scikit-learn"
+            echo '```json'
+            cat target/bench/sklearn.json
+            echo '```'
+            echo
+            echo "### tpt-ml-proven"
+            echo '```'
+            cat target/bench/tpt-ml-proven.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kmeans-benchmark
+          path: target/bench/*.json

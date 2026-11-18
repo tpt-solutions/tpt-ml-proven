@@ -86,7 +86,7 @@ Dependency rule: runtime deps must be MIT, MIT/Apache-2.0 dual, BSD, ISC, Zlib, 
 - [x] Document unavoidable differences (init RNG, sign flips) and how tests normalise them (`docs/parity.md`)
 - [x] Benchmark harness: KMeans.fit on 1M × 50 `f32` (`examples/bench_kmeans.rs`)
 - [x] Comparison script against scikit-learn on same hardware (`tools/parity/bench_kmeans.py`). Target ≥ 2× faster: **not met** (see `docs/benchmarks.md`)
-- [ ] CI benchmark job as non-blocking report; record results in `docs/`
+- [x] CI benchmark job as non-blocking report (`benchmark` job in `ci.yml`: `continue-on-error`, results in the job summary and an artifact). Not yet run on GitHub; results still to be copied into `docs/`
 - [ ] Profile and optimise if below 2× target — done: single-thread 6.26 s → 2.63 s, 20 threads 0.73 s (parallel update chunked). Still 1.9× slower single-threaded and 1.7× slower with all cores vs scikit-learn (see `docs/benchmarks.md`)
 
 **Done when:** parity tests pass at 1e-9 and benchmark results are published.
