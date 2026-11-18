@@ -1,7 +1,7 @@
 # tpt-ml-proven (Python)
 
-Python bindings for KMeans and PCA, built with PyO3 and maturin as `abi3` wheels
-(Python 3.9 and later).
+Python bindings for KMeans, PCA and the Phase 8 estimators, built with PyO3 and maturin as
+`abi3` wheels (Python 3.9 and later).
 
 ```sh
 pip install maturin
@@ -23,3 +23,19 @@ z = PCA(2).fit(x).transform(x)
 - `fit` releases the GIL. Do not modify the array while it runs.
 - Results are returned as Python lists.
 - Errors raise `ValueError` for bad parameters or shapes, and `RuntimeError` before `fit`.
+
+### Phase 8 estimators
+
+`DBSCAN`, `HDBSCAN`, `TruncatedSVD`, `NMF`, `Ridge`, `Lasso`, `ElasticNet`,
+`LogisticRegression` (binary or multinomial, `C` as in scikit-learn) and `StumpForest`.
+These copy the input into `float64` before fitting, so `float32` and `float64` inputs give
+the same result. Targets are passed as a sequence of numbers. Labels come back as numbers.
+
+```python
+from tpt_ml_proven import DBSCAN, LogisticRegression
+
+labels = DBSCAN(eps=0.5, min_samples=5).fit(x).labels_
+proba = LogisticRegression(C=1.0).fit(x, y).predict_proba(x)
+```
+
+The Phase 8 estimators are not yet exposed through the WebAssembly or C bindings.

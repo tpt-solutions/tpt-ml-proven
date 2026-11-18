@@ -20,3 +20,5 @@ pyo3 = { version = "0.30", features = ["extension-module", "abi3-py39"] }
 tpt-ml-proven-core = { path = "../../crates/tpt-ml-proven-core" }
 tpt-ml-proven-clustering = { path = "../../crates/tpt-ml-proven-clustering", features = ["parallel"] }
 tpt-ml-proven-decomposition = { path = "../../crates/tpt-ml-proven-decomposition" }
+tpt-ml-proven-linear = { path = "../../crates/tpt-ml-proven-linear" }
+tpt-ml-proven-ensemble = { path = "../../crates/tpt-ml-proven-ensemble" }

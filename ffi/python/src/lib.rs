@@ -26,6 +26,13 @@ use tpt_ml_proven_core::{
 };
 use tpt_ml_proven_decomposition::Pca;
 
+mod models;
+
+pub use models::{
+    PyDbscan, PyElasticNet, PyHdbscan, PyLasso, PyLogisticRegression, PyNmf, PyRidge,
+    PyStumpForest, PyTruncatedSvd,
+};
+
 fn to_py_err(e: Error) -> PyErr {
     match e {
         Error::NotFitted => PyRuntimeError::new_err(e.to_string()),
@@ -551,5 +558,14 @@ impl PyPca {
 fn tpt_ml_proven(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyKMeans>()?;
     m.add_class::<PyPca>()?;
+    m.add_class::<PyDbscan>()?;
+    m.add_class::<PyHdbscan>()?;
+    m.add_class::<PyTruncatedSvd>()?;
+    m.add_class::<PyNmf>()?;
+    m.add_class::<PyRidge>()?;
+    m.add_class::<PyLasso>()?;
+    m.add_class::<PyElasticNet>()?;
+    m.add_class::<PyLogisticRegression>()?;
+    m.add_class::<PyStumpForest>()?;
     Ok(())
 }
