@@ -139,7 +139,7 @@ Each item gets: crate code, `.tptc` contract, scikit-learn parity fixtures, FFI 
 - [x] Lasso — coordinate descent, matches scikit-learn (`linear_lasso`)
 - [x] ElasticNet — coordinate descent, matches scikit-learn (`linear_elasticnet`)
 - [x] Logistic regression — binary, L2, Newton iterations; matches scikit-learn (`logistic_binary_c1`)
-- [ ] Logistic regression: multiclass (multinomial) — not started
+- [x] Logistic regression: multiclass (multinomial) — `MulticlassLogistic`, matches scikit-learn coefficients and probabilities (`logistic_multiclass_c1`)
 
 ### Preprocessing (`tpt-ml-proven-preprocessing`)
 - [x] Scalers (Standard, MinMax, Robust) — unit tests with hand-computed values; scikit-learn parity at 1e-9 (`scalers_skewed`)
