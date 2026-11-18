@@ -4,8 +4,10 @@ Classical machine learning in Rust with **proven correctness**: core algorithms 
 `requires` / `ensures` contracts checked by a self-contained QF_LRA solver.
 
 > Status: pre-release (v0.1 in progress). KMeans and PCA are implemented, verified
-> against scikit-learn, and available from Rust, Python and WebAssembly. The Go
-> binding and the remaining algorithms are still to come.
+> against scikit-learn, and available from Rust, Python and WebAssembly. The Phase 8
+> algorithms (DBSCAN, HDBSCAN, TruncatedSVD, NMF, the linear models, preprocessing and a
+> stump forest) are in Rust with contracts, but not yet exposed through the bindings. The
+> Go binding and multiclass logistic regression are still to come.
 
 ## Verification
 
@@ -42,10 +44,11 @@ Each crate has its own README and changelog.
 | Crate | Status | Purpose | Docs |
 | --- | --- | --- | --- |
 | `tpt-ml-proven-core` | Implemented | Estimator traits, contracts, shared errors (`no_std` + `alloc`) | [README](crates/tpt-ml-proven-core/README.md) · [CHANGELOG](crates/tpt-ml-proven-core/CHANGELOG.md) |
-| `tpt-ml-proven-clustering` | KMeans implemented; DBSCAN, HDBSCAN planned | Clustering estimators | [README](crates/tpt-ml-proven-clustering/README.md) · [CHANGELOG](crates/tpt-ml-proven-clustering/CHANGELOG.md) |
-| `tpt-ml-proven-decomposition` | PCA implemented; TruncatedSVD, NMF planned | Matrix decomposition estimators | [README](crates/tpt-ml-proven-decomposition/README.md) · [CHANGELOG](crates/tpt-ml-proven-decomposition/CHANGELOG.md) |
-| `tpt-ml-proven-linear` | Planned | Ridge, Lasso, ElasticNet, logistic regression | [README](crates/tpt-ml-proven-linear/README.md) · [CHANGELOG](crates/tpt-ml-proven-linear/CHANGELOG.md) |
-| `tpt-ml-proven-preprocessing` | Planned | Scalers, encoders, imputers | [README](crates/tpt-ml-proven-preprocessing/README.md) · [CHANGELOG](crates/tpt-ml-proven-preprocessing/CHANGELOG.md) |
+| `tpt-ml-proven-clustering` | KMeans, DBSCAN, HDBSCAN implemented | Clustering estimators | [README](crates/tpt-ml-proven-clustering/README.md) · [CHANGELOG](crates/tpt-ml-proven-clustering/CHANGELOG.md) |
+| `tpt-ml-proven-decomposition` | PCA, TruncatedSVD, NMF implemented | Matrix decomposition estimators | [README](crates/tpt-ml-proven-decomposition/README.md) · [CHANGELOG](crates/tpt-ml-proven-decomposition/CHANGELOG.md) |
+| `tpt-ml-proven-linear` | Ridge, Lasso, ElasticNet implemented; binary logistic regression | [README](crates/tpt-ml-proven-linear/README.md) · [CHANGELOG](crates/tpt-ml-proven-linear/CHANGELOG.md) |
+| `tpt-ml-proven-preprocessing` | Scalers, encoders, imputers implemented | [README](crates/tpt-ml-proven-preprocessing/README.md) · [CHANGELOG](crates/tpt-ml-proven-preprocessing/CHANGELOG.md) |
+| `tpt-ml-proven-ensemble` | Stump forest implemented | Bagged decision stumps | [README](crates/tpt-ml-proven-ensemble/README.md) · [CHANGELOG](crates/tpt-ml-proven-ensemble/CHANGELOG.md) |
 | `tpt-ml-proven-ffi` | Placeholder | FFI surface; the bindings live in `ffi/` | [README](crates/tpt-ml-proven-ffi/README.md) · [CHANGELOG](crates/tpt-ml-proven-ffi/CHANGELOG.md) |
 
 Workspace-wide changes (contracts, the verifier, parity tests, bindings) are recorded in

@@ -124,31 +124,32 @@ Dependency rule: runtime deps must be MIT, MIT/Apache-2.0 dual, BSD, ISC, Zlib, 
 **Done when:** v0.1.0 is installable from crates.io, PyPI and via `go get`.
 
 ## Phase 8 — Roadmap: remaining algorithms
-Each item gets: crate code, `.tptc` contract, scikit-learn parity fixtures, FFI exposure, tests. Done so far: crate code, parity fixtures and tests. Not yet: `.tptc` contracts and FFI exposure for these algorithms.
+Each item gets: crate code, `.tptc` contract, scikit-learn parity fixtures, FFI exposure, tests. Done so far: crate code, parity fixtures and tests, and `.tptc` contracts with runtime checks. Not yet: FFI exposure for these algorithms.
 
 ### Clustering
 - [x] DBSCAN — exact label parity with scikit-learn (`dbscan_blobs_noise`)
-- [ ] HDBSCAN — not started
+- [x] HDBSCAN — excess-of-mass selection; cluster partition and noise match scikit-learn (`hdbscan_blobs_noise`)
 
 ### Decomposition
 - [x] TruncatedSVD — singular values and components match scikit-learn ARPACK (`svd_arpack_k2`). Dense only so far
-- [ ] NMF — not started
+- [x] NMF — Frobenius loss, multiplicative updates; matches scikit-learn with `init="custom"`, `solver="mu"` (`nmf_mu_fixed_iters`, `nmf_mu_tol`). scikit-learn's default `cd` solver and NNDSVD init are not implemented
 
 ### Linear models (`tpt-ml-proven-linear`)
 - [x] Ridge — closed form, matches scikit-learn (`linear_ridge`)
 - [x] Lasso — coordinate descent, matches scikit-learn (`linear_lasso`)
 - [x] ElasticNet — coordinate descent, matches scikit-learn (`linear_elasticnet`)
-- [ ] Logistic regression — not started
+- [x] Logistic regression — binary, L2, Newton iterations; matches scikit-learn (`logistic_binary_c1`)
+- [ ] Logistic regression: multiclass (multinomial) — not started
 
 ### Preprocessing (`tpt-ml-proven-preprocessing`)
-- [x] Scalers (Standard, MinMax, Robust) — unit tests with hand-computed values; scikit-learn fixtures not yet generated
+- [x] Scalers (Standard, MinMax, Robust) — unit tests with hand-computed values; scikit-learn parity at 1e-9 (`scalers_skewed`)
 - [x] Encoders (OneHot, Ordinal) — unit tests; unknown categories are an error
 - [x] Imputers (Simple: mean, median, most frequent, constant) — unit tests
 
 ### Ensemble
-- [ ] Stump forests — not started
+- [x] Stump forests (`tpt-ml-proven-ensemble`) — bagged depth-one classification trees, majority vote. No scikit-learn reference, so tested by properties
 
-- [ ] Update README/docs and release as v0.x increments — README and CHANGELOG not yet updated for these
+- [ ] Update README/docs and release as v0.x increments — per-crate CHANGELOGs updated for linear and preprocessing; root README and CHANGELOG not yet updated for these
 
 ## Phase 9 — v0.2
 - [ ] Design stable on-disk model format (replace interim bincode/serde)
