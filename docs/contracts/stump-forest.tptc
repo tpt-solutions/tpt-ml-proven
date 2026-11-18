@@ -1,0 +1,11 @@
+# Stump forest contract, from the Phase 8 roadmap.
+# Format and verification rules: docs/contracts/README.md
+
+contract stump_forest
+source crates/tpt-ml-proven-ensemble/src/lib.rs
+
+requires[rows_positive]: X.rows >= 1
+requires[estimators_positive]: n_estimators >= 1
+
+# Every stump predicts one of the training classes.
+ensures[predicts_training_class]: stump_predicts(i) == 1 => label_in_classes(stump_predicts(i)) == 1

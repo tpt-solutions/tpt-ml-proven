@@ -21,6 +21,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "tpt-ml-proven-ensemble"
+version = "0.0.0"
+dependencies = [
+ "tpt-ml-proven-core",
+]
+
+[[package]]
 name = "tpt-ml-proven-ffi"
 version = "0.0.0"
 

@@ -6,6 +6,7 @@ members = [
     "crates/tpt-ml-proven-core",
     "crates/tpt-ml-proven-clustering",
     "crates/tpt-ml-proven-decomposition",
+    "crates/tpt-ml-proven-ensemble",
     "crates/tpt-ml-proven-linear",
     "crates/tpt-ml-proven-preprocessing",
     "crates/tpt-ml-proven-ffi",

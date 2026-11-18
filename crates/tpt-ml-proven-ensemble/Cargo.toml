@@ -1,0 +1,15 @@
+[package]
+name = "tpt-ml-proven-ensemble"
+description = "Ensemble models for tpt-ml-proven (bagged decision stumps)."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+readme = "../../README.md"
+
+[dependencies]
+tpt-ml-proven-core.workspace = true
+
+[lints]
+workspace = true
