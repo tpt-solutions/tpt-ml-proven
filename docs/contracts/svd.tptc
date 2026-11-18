@@ -1,0 +1,15 @@
+# Truncated SVD contract, from the Phase 8 roadmap.
+# Format and verification rules: docs/contracts/README.md
+
+contract svd
+source crates/tpt-ml-proven-decomposition/src/svd.rs
+
+requires[rows_positive]: X.rows >= 1
+requires[components_positive]: n_components >= 1
+requires[components_le_cols]: n_components <= X.cols
+
+# Provable from the requires clauses alone (QF_LRA): checked by the solver.
+ensures[components_within_cols]: n_components <= X.cols
+
+ensures[orthonormal_components]: dot(component_i, component_j) == kronecker(i, j)
+ensures[singular_values_sorted]: sorted_descending(singular_values) == 1

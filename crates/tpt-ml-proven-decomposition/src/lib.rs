@@ -8,8 +8,10 @@
 //! here, so this crate has no dependencies beyond core.
 
 pub mod eigen;
+pub mod nmf;
 pub mod pca;
 pub mod svd;
 
+pub use nmf::Nmf;
 pub use pca::Pca;
 pub use svd::TruncatedSvd;

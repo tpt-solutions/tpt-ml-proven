@@ -1,0 +1,14 @@
+# NMF contract, from the Phase 8 roadmap.
+# Format and verification rules: docs/contracts/README.md
+
+contract nmf
+source crates/tpt-ml-proven-decomposition/src/nmf.rs
+
+requires[rows_positive]: X.rows >= 1
+requires[components_positive]: n_components >= 1
+
+# Non-negative factors: multiplicative updates preserve the sign of the start.
+ensures[factors_nonnegative]: min_entry(W) >= 0 && min_entry(H) >= 0
+
+# Each multiplicative-update sweep does not increase the Frobenius error.
+ensures[error_not_increased]: frobenius_error(final) <= frobenius_error(initial)

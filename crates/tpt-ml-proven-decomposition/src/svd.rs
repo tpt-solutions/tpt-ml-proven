@@ -12,7 +12,9 @@
 //! is positive.
 
 use tpt_ml_proven_core::error::Error;
-use tpt_ml_proven_core::{ArrayView, Dense, Float, Transformer, UnsupervisedEstimator};
+use tpt_ml_proven_core::{
+    ensures, requires, ArrayView, Dense, Float, Transformer, UnsupervisedEstimator,
+};
 
 use crate::eigen::symmetric_eigen;
 
@@ -74,6 +76,9 @@ impl<F: Float> UnsupervisedEstimator for TruncatedSvd<F> {
         if !x.all_finite() {
             return Err(Error::NonFinite { what: "X" });
         }
+        requires!(n >= 1, "svd.rows_positive");
+        requires!(self.n_components >= 1, "svd.components_positive");
+        requires!(self.n_components <= d, "svd.components_le_cols");
         let mut gram = vec![0.0_f64; d * d];
         for r in 0..n {
             for i in 0..d {
@@ -106,6 +111,24 @@ impl<F: Float> UnsupervisedEstimator for TruncatedSvd<F> {
             components.push(v);
             singular_values.push(eig.values[i].max(0.0).sqrt());
         }
+        // Unit, mutually orthogonal components, and singular values in descending order.
+        ensures!(
+            components
+                .iter()
+                .enumerate()
+                .all(|(i, a)| components.iter().enumerate().all(|(j, b)| {
+                    let dot: f64 = a.iter().zip(b).map(|(p, q)| p * q).sum();
+                    let want = if i == j { 1.0 } else { 0.0 };
+                    (dot - want).abs() <= 1e-8
+                })),
+            "svd.orthonormal_components"
+        );
+        ensures!(
+            singular_values.iter().all(|&s| s >= 0.0)
+                && singular_values.windows(2).all(|w| w[0] >= w[1]),
+            "svd.singular_values_sorted"
+        );
+        ensures!(k <= d, "svd.components_within_cols");
         self.fitted = Some(Fitted {
             components,
             singular_values,
