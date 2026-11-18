@@ -1,0 +1,16 @@
+# Elastic net and lasso contract, from docs/DESIGN.md §6 and the Phase 8 roadmap.
+# Format and verification rules: docs/contracts/README.md
+
+contract elasticnet
+source crates/tpt-ml-proven-linear/src/lib.rs
+
+requires[rows_positive]: X.rows >= 1
+requires[alpha_nonneg]: alpha >= 0
+requires[l1_ratio_nonneg]: l1_ratio >= 0
+requires[l1_ratio_le_one]: l1_ratio <= 1
+
+# Provable from the requires clauses alone (QF_LRA): checked by the solver.
+ensures[l1_ratio_within_unit]: l1_ratio <= 1
+
+# Optimality of the coordinate-descent solution, up to the stopping slack.
+ensures[kkt]: kkt_violation(X, y, coef, alpha, l1_ratio) <= kkt_slack

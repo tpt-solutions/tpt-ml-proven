@@ -106,3 +106,66 @@ fn predictions_follow_the_fitted_coefficients() {
         assert!((pred[r] - manual).abs() < 1e-12);
     }
 }
+
+#[test]
+fn logistic_matches_scikit_learn() {
+    use tpt_ml_proven_linear::LogisticRegression;
+
+    let fx = load("logistic_binary_c1");
+    let rows: usize = fx["rows"][0].parse().unwrap();
+    let cols: usize = fx["cols"][0].parse().unwrap();
+    let x = floats(&fx, "x");
+    let y = floats(&fx, "y");
+    let c: f64 = fx["C"][0].parse().unwrap();
+
+    let mut m = LogisticRegression::<f64>::new(c)
+        .with_tol(1e-10)
+        .with_max_iter(1000);
+    SupervisedEstimator::fit(&mut m, DenseView::new(&x, rows, cols).unwrap(), &y[..]).unwrap();
+
+    for (j, &w) in floats(&fx, "coef").iter().enumerate() {
+        assert_close(m.coef().unwrap()[j], w, &format!("logistic: coef[{j}]"));
+    }
+    assert_close(
+        m.intercept().unwrap(),
+        floats(&fx, "intercept")[0],
+        "logistic: intercept",
+    );
+    let proba = m
+        .predict_proba(DenseView::new(&x, rows, cols).unwrap())
+        .unwrap();
+    for (i, (&p, &q)) in proba.iter().zip(&floats(&fx, "proba")).enumerate() {
+        assert_close(p, q, &format!("logistic: proba[{i}]"));
+    }
+    let labels = Predictor::predict(&m, DenseView::new(&x, rows, cols).unwrap()).unwrap();
+    let expected_labels: Vec<f64> = floats(&fx, "proba")
+        .iter()
+        .map(|&p| if p >= 0.5 { 1.0 } else { 0.0 })
+        .collect();
+    assert_eq!(labels, expected_labels);
+}
+
+/// The `elasticnet.kkt` contract must hold at the default tolerance, not only at the tight
+/// tolerances the parity fixtures use. Sweeps penalties and mixing ratios on random data.
+#[test]
+fn elasticnet_kkt_contract_holds_at_default_tolerance() {
+    let (rows, cols) = (50, 6);
+    let mut seed: u64 = 12345;
+    let mut next = || {
+        seed = seed
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
+        ((seed >> 11) as f64 / (1u64 << 53) as f64) * 2.0 - 1.0
+    };
+    let x: Vec<f64> = (0..rows * cols).map(|_| next()).collect();
+    let y: Vec<f64> = (0..rows)
+        .map(|r| x[r * cols] - 2.0 * x[r * cols + 3] + 0.3 * next())
+        .collect();
+    for &alpha in &[0.01, 0.1, 0.5] {
+        for &rho in &[0.0, 0.3, 0.7, 1.0] {
+            let mut m = tpt_ml_proven_linear::ElasticNet::<f64>::new(alpha, rho);
+            SupervisedEstimator::fit(&mut m, DenseView::new(&x, rows, cols).unwrap(), &y[..])
+                .unwrap_or_else(|e| panic!("alpha {alpha}, l1_ratio {rho}: {e}"));
+        }
+    }
+}

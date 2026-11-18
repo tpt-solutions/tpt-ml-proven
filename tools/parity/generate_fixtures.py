@@ -33,9 +33,10 @@ from pathlib import Path
 
 import numpy as np
 import sklearn
-from sklearn.cluster import DBSCAN, KMeans
-from sklearn.linear_model import ElasticNet, Lasso, Ridge
-from sklearn.decomposition import PCA, TruncatedSVD
+from sklearn.cluster import DBSCAN, HDBSCAN, KMeans
+from sklearn.linear_model import ElasticNet, Lasso, LogisticRegression, Ridge
+from sklearn.decomposition import NMF, PCA, TruncatedSVD
+from sklearn.preprocessing import MinMaxScaler, RobustScaler, StandardScaler
 
 PINNED = "1.9.0"
 OUT = Path(__file__).resolve().parent / "fixtures"
@@ -101,7 +102,7 @@ def pca_case(name, x, k):
 
 
 def dbscan_case(name, x, eps, min_samples):
-    model = DBSCAN(eps=eps, min_samples=min_samples, algorithm="brute").fit(x)
+    model = DBSCAN(eps=eps, min_samples=min_samples, algorithm="brute", copy=False).fit(x)
     write(
         name,
         [("kind", "dbscan"), ("rows", x.shape[0]), ("cols", x.shape[1]), ("eps", f"{eps:.17g}"), ("min_samples", min_samples)],
@@ -123,6 +124,82 @@ def linear_case(name, model, x, y, params):
             ("y", fmt(y)),
             ("coef", fmt(model.coef_)),
             ("intercept", f"{float(model.intercept_):.17g}"),
+        ],
+    )
+
+
+def logistic_case(name, x, y, c):
+    model = LogisticRegression(C=c, solver="lbfgs", tol=1e-12, max_iter=10000).fit(x, y)
+    write(
+        name,
+        [("kind", "logistic"), ("rows", x.shape[0]), ("cols", x.shape[1]), ("C", f"{c:.17g}")],
+        [
+            ("x", fmt(x)),
+            ("y", fmt(y)),
+            ("coef", fmt(model.coef_[0])),
+            ("intercept", f"{float(model.intercept_[0]):.17g}"),
+            ("proba", fmt(model.predict_proba(x)[:, 1])),
+        ],
+    )
+
+
+def scaler_case(name, x):
+    # Each scaler is fitted on x and asked to transform x, so the fixture holds the
+    # fitted statistics and the transformed output for both sides to compare.
+    standard = StandardScaler().fit(x)
+    minmax = MinMaxScaler().fit(x)
+    robust = RobustScaler().fit(x)
+    write(
+        name,
+        [("kind", "scaler"), ("rows", x.shape[0]), ("cols", x.shape[1])],
+        [
+            ("x", fmt(x)),
+            ("standard_mean", fmt(standard.mean_)),
+            ("standard_scale", fmt(standard.scale_)),
+            ("standard_out", fmt(standard.transform(x))),
+            ("minmax_min", fmt(minmax.min_)),
+            ("minmax_scale", fmt(minmax.scale_)),
+            ("minmax_out", fmt(minmax.transform(x))),
+            ("robust_center", fmt(robust.center_)),
+            ("robust_scale", fmt(robust.scale_)),
+            ("robust_out", fmt(robust.transform(x))),
+        ],
+    )
+
+
+def nmf_case(name, x, k, init_w, init_h, max_iter, tol):
+    # Explicit starting factors, multiplicative updates, Frobenius loss.
+    model = NMF(
+        n_components=k,
+        init="custom",
+        solver="mu",
+        beta_loss="frobenius",
+        max_iter=max_iter,
+        tol=tol,
+    )
+    w = model.fit_transform(x, W=init_w.copy(), H=init_h.copy())
+    write(
+        name,
+        [("kind", "nmf"), ("rows", x.shape[0]), ("cols", x.shape[1]), ("k", k), ("tol", f"{tol:.17g}"), ("max_iter", max_iter)],
+        [
+            ("x", fmt(x)),
+            ("init_w", fmt(init_w)),
+            ("init_h", fmt(init_h)),
+            ("w", fmt(w)),
+            ("h", fmt(model.components_)),
+            ("n_iter", int(model.n_iter_)),
+        ],
+    )
+
+
+def hdbscan_case(name, x, min_cluster_size):
+    model = HDBSCAN(min_cluster_size=min_cluster_size, cluster_selection_method="eom", allow_single_cluster=False, algorithm="brute", copy=False).fit(x)
+    write(
+        name,
+        [("kind", "hdbscan"), ("rows", x.shape[0]), ("cols", x.shape[1]), ("min_cluster_size", min_cluster_size)],
+        [
+            ("x", fmt(x)),
+            ("labels", " ".join(str(int(v)) for v in model.labels_)),
         ],
     )
 
@@ -179,6 +256,45 @@ def main():
     linear_case("linear_ridge", Ridge(alpha=1.0), xr, yr, {"model": "ridge", "alpha": 1.0})
     linear_case("linear_lasso", Lasso(alpha=0.05, tol=1e-12, max_iter=100000), xr, yr, {"model": "lasso", "alpha": 0.05})
     linear_case("linear_elasticnet", ElasticNet(alpha=0.05, l1_ratio=0.5, tol=1e-12, max_iter=100000), xr, yr, {"model": "elasticnet", "alpha": 0.05, "l1_ratio": 0.5})
+
+    # Logistic regression: a binary target from a noisy linear score, with its own rng.
+    rng4 = np.random.default_rng(9001)
+    xl = rng4.standard_normal((80, 3))
+    score = xl @ np.array([2.0, -1.0, 0.5]) - 0.2 + 0.5 * rng4.standard_normal(80)
+    yl = (score > 0).astype(float)
+    logistic_case("logistic_binary_c1", xl, yl, c=1.0)
+
+    # Scalers: skewed, offset columns with an outlier, so the robust statistics differ
+    # from the mean and standard deviation. Own rng.
+    rng5 = np.random.default_rng(55)
+    xs = np.column_stack([
+        3.0 + 2.0 * rng5.standard_normal(30),
+        np.exp(rng5.standard_normal(30)),
+        rng5.uniform(-10, 10, 30),
+    ])
+    xs[0, 2] = 250.0
+    scaler_case("scalers_skewed", xs)
+
+    # NMF: non-negative data with two latent sources, explicit starting factors.
+    rng6 = np.random.default_rng(31)
+    sources = rng6.uniform(0, 1, size=(30, 2))
+    mixing_nmf = rng6.uniform(0, 1, size=(2, 5))
+    xn = sources @ mixing_nmf + 0.01 * rng6.uniform(0, 1, size=(30, 5))
+    k_nmf = 2
+    w0 = rng6.uniform(0.1, 1.0, size=(30, k_nmf))
+    h0 = rng6.uniform(0.1, 1.0, size=(k_nmf, 5))
+    nmf_case("nmf_mu_fixed_iters", xn, k_nmf, w0, h0, max_iter=60, tol=0.0)
+    nmf_case("nmf_mu_tol", xn, k_nmf, w0, h0, max_iter=500, tol=1e-4)
+
+    # HDBSCAN: three blobs of different density, plus scattered noise. Own rng.
+    rng7 = np.random.default_rng(2024)
+    blobs_h = np.vstack([
+        np.array([0.0, 0.0]) + 0.2 * rng7.standard_normal((40, 2)),
+        np.array([4.0, 0.0]) + 0.5 * rng7.standard_normal((40, 2)),
+        np.array([0.0, 5.0]) + 0.3 * rng7.standard_normal((40, 2)),
+    ])
+    noise_h = rng7.uniform(-3, 7, size=(10, 2))
+    hdbscan_case("hdbscan_blobs_noise", np.vstack([blobs_h, noise_h]), min_cluster_size=8)
 
 
 if __name__ == "__main__":

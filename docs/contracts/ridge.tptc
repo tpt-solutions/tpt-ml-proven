@@ -1,0 +1,12 @@
+# Ridge contract, from docs/DESIGN.md §6 and the Phase 8 roadmap.
+# Format and verification rules: docs/contracts/README.md
+
+contract ridge
+source crates/tpt-ml-proven-linear/src/lib.rs
+
+requires[rows_positive]: X.rows >= 1
+requires[alpha_nonneg]: alpha >= 0
+
+# The fitted coefficients solve (XᵀX + αI) w = Xᵀy. Written as an uninterpreted call,
+# so it is reported as UNVERIFIED and enforced by the runtime residual check.
+ensures[normal_equations]: normal_residual(X, y, coef) == 0

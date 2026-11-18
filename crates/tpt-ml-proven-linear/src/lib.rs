@@ -8,10 +8,19 @@
 //!   coordinate descent. [`Lasso`] is the case `ρ = 1`.
 //!
 //! These are the objectives scikit-learn uses, so coefficients can be compared with it.
+//! * [`LogisticRegression`] is binary classification with an L2 penalty, fitted by Newton
+//!   iterations on the objective scikit-learn minimises (see the `logistic` module).
+//!
 //! Computation is in `f64`, and the intercept is fitted by centring the data.
 
+mod logistic;
+
+pub use logistic::LogisticRegression;
+
 use tpt_ml_proven_core::error::{Error, ShapeError};
-use tpt_ml_proven_core::{ArrayView, Float, Predictor, SupervisedEstimator, TargetView};
+use tpt_ml_proven_core::{
+    ensures, requires, ArrayView, Float, Predictor, SupervisedEstimator, TargetView,
+};
 
 /// Centred design matrix and target, with the means needed to recover the intercept.
 struct Centred {
@@ -73,7 +82,7 @@ fn centre<F: Float, X: ArrayView<Elem = F>, Y: TargetView<Elem = F>>(
 }
 
 /// Solves `a·x = b` for symmetric positive definite `a` (row-major, `d × d`) by Cholesky.
-fn cholesky_solve(a: &[f64], b: &[f64], d: usize) -> Option<Vec<f64>> {
+pub(crate) fn cholesky_solve(a: &[f64], b: &[f64], d: usize) -> Option<Vec<f64>> {
     let mut l = vec![0.0_f64; d * d];
     for i in 0..d {
         for j in 0..=i {
@@ -108,6 +117,31 @@ fn cholesky_solve(a: &[f64], b: &[f64], d: usize) -> Option<Vec<f64>> {
         x[i] = s / l[i * d + i];
     }
     Some(x)
+}
+
+/// Largest KKT violation allowed at convergence in the elastic-net contract.
+const KKT_SLACK: f64 = 1e-3;
+
+/// Largest violation of the elastic-net optimality conditions for `coef`. For coefficient
+/// `j` with gradient `g_j = −x_jᵀr/n + λ₂w_j`: `g_j + λ₁·sign(w_j) = 0` when `w_j ≠ 0`,
+/// and `|g_j| ≤ λ₁` when `w_j = 0`.
+fn kkt_violation(c: &Centred, coef: &[f64], lambda1: f64, lambda2: f64) -> f64 {
+    let (n, d) = (c.rows, c.cols);
+    let nf = n as f64;
+    let resid: Vec<f64> = (0..n)
+        .map(|r| c.y[r] - (0..d).map(|j| c.x[r * d + j] * coef[j]).sum::<f64>())
+        .collect();
+    (0..d)
+        .map(|j| {
+            let g =
+                -(0..n).map(|r| c.x[r * d + j] * resid[r]).sum::<f64>() / nf + lambda2 * coef[j];
+            if coef[j] != 0.0 {
+                (g + lambda1 * coef[j].signum()).abs()
+            } else {
+                (g.abs() - lambda1).max(0.0)
+            }
+        })
+        .fold(0.0_f64, f64::max)
 }
 
 fn soft_threshold(z: f64, t: f64) -> f64 {
@@ -193,6 +227,8 @@ impl<F: Float> SupervisedEstimator for Ridge<F> {
         }
         let c = centre(&x, &y)?;
         let d = c.cols;
+        requires!(c.rows >= 1, "ridge.rows_positive");
+        requires!(self.alpha >= 0.0, "ridge.alpha_nonneg");
         // (XᵀX + αI) w = Xᵀy, on centred data.
         let mut gram = vec![0.0_f64; d * d];
         let mut xty = vec![0.0_f64; d];
@@ -212,6 +248,15 @@ impl<F: Float> SupervisedEstimator for Ridge<F> {
             name: "alpha",
             reason: "the penalised system is singular; use alpha > 0 with collinear data",
         })?;
+        // The normal equations hold at the solution: (XᵀX + αI) w − Xᵀy = 0, up to rounding.
+        let scale = 1.0 + xty.iter().fold(0.0_f64, |m, v| m.max(v.abs()));
+        let normal_residual = (0..d)
+            .map(|i| {
+                let lhs: f64 = (0..d).map(|j| gram[i * d + j] * coef[j]).sum();
+                (lhs - xty[i]).abs()
+            })
+            .fold(0.0_f64, f64::max);
+        ensures!(normal_residual <= 1e-8 * scale, "ridge.normal_equations");
         let intercept = c.y_mean - coef.iter().zip(&c.x_mean).map(|(w, m)| w * m).sum::<f64>();
         self.fitted = Some((coef, intercept));
         Ok(())
@@ -340,6 +385,10 @@ impl<F: Float> SupervisedEstimator for ElasticNet<F> {
         }
         let c = centre(&x, &y)?;
         let (n, d) = (c.rows, c.cols);
+        requires!(n >= 1, "elasticnet.rows_positive");
+        requires!(self.alpha >= 0.0, "elasticnet.alpha_nonneg");
+        requires!(self.l1_ratio >= 0.0, "elasticnet.l1_ratio_nonneg");
+        requires!(self.l1_ratio <= 1.0, "elasticnet.l1_ratio_le_one");
         let nf = n as f64;
         let lambda1 = self.alpha * self.l1_ratio;
         let lambda2 = self.alpha * (1.0 - self.l1_ratio);
@@ -351,6 +400,7 @@ impl<F: Float> SupervisedEstimator for ElasticNet<F> {
         // Residual y − X·coef, kept up to date as coefficients change.
         let mut resid = c.y.clone();
         let mut iterations = 0;
+        let mut converged = false;
         for sweep in 0..self.max_iter {
             iterations = sweep + 1;
             let mut max_change = 0.0_f64;
@@ -378,8 +428,17 @@ impl<F: Float> SupervisedEstimator for ElasticNet<F> {
                 max_coef = max_coef.max(new.abs());
             }
             if max_change <= self.tol * max_coef {
+                converged = true;
                 break;
             }
+        }
+        ensures!(self.l1_ratio <= 1.0, "elasticnet.l1_ratio_within_unit");
+        if converged {
+            // At convergence the KKT conditions hold up to the stopping rule's slack.
+            ensures!(
+                kkt_violation(&c, &coef, lambda1, lambda2) <= KKT_SLACK,
+                "elasticnet.kkt"
+            );
         }
         let intercept = c.y_mean - coef.iter().zip(&c.x_mean).map(|(w, m)| w * m).sum::<f64>();
         self.fitted = Some((coef, intercept, iterations));
