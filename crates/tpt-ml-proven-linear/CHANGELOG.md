@@ -16,4 +16,7 @@ All notable changes to `tpt-ml-proven-linear` are recorded here. The format foll
   scikit-learn's objectives. Parity tests at 1e-6 on committed fixtures.
 - `LogisticRegression`: binary, L2-penalised, fitted by damped Newton iterations with
   scikit-learn's `C` convention. `predict_proba` and `predict`. Parity tests on a committed
-  fixture. Multiclass is not yet supported.
+  fixture.
+- `MulticlassLogistic`: multinomial (softmax) logistic regression for two or more classes,
+  same `C` convention. Coefficients and probabilities match scikit-learn on a committed fixture.
+  The last class's intercept is pinned at 0, since the objective is invariant to a common shift.

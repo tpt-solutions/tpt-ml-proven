@@ -102,7 +102,7 @@ def pca_case(name, x, k):
 
 
 def dbscan_case(name, x, eps, min_samples):
-    model = DBSCAN(eps=eps, min_samples=min_samples, algorithm="brute", copy=False).fit(x)
+    model = DBSCAN(eps=eps, min_samples=min_samples, algorithm="brute").fit(x)
     write(
         name,
         [("kind", "dbscan"), ("rows", x.shape[0]), ("cols", x.shape[1]), ("eps", f"{eps:.17g}"), ("min_samples", min_samples)],
@@ -204,6 +204,20 @@ def hdbscan_case(name, x, min_cluster_size):
     )
 
 
+def multiclass_logistic_case(name, x, y, c):
+    model = LogisticRegression(C=c, solver="lbfgs", tol=1e-12, max_iter=10000).fit(x, y)
+    write(
+        name,
+        [("kind", "logistic_multi"), ("rows", x.shape[0]), ("cols", x.shape[1]), ("classes", len(model.classes_)), ("C", f"{c:.17g}")],
+        [
+            ("x", fmt(x)),
+            ("y", fmt(y)),
+            ("coef", fmt(model.coef_)),
+            ("proba", fmt(model.predict_proba(x))),
+        ],
+    )
+
+
 def svd_case(name, x, k):
     model = TruncatedSVD(n_components=k, algorithm="arpack", random_state=0).fit(x)
     write(
@@ -295,6 +309,13 @@ def main():
     ])
     noise_h = rng7.uniform(-3, 7, size=(10, 2))
     hdbscan_case("hdbscan_blobs_noise", np.vstack([blobs_h, noise_h]), min_cluster_size=8)
+
+    # Multiclass logistic: three classes from noisy linear scores. Own rng.
+    rng8 = np.random.default_rng(777001)
+    xm = rng8.standard_normal((90, 2))
+    scores = xm @ np.array([[1.5, -1.0, 0.2], [-0.5, 1.2, 0.8]]) + 0.3 * rng8.standard_normal((90, 3))
+    ym = scores.argmax(axis=1).astype(float)
+    multiclass_logistic_case("logistic_multiclass_c1", xm, ym, c=1.0)
 
 
 if __name__ == "__main__":

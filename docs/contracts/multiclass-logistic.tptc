@@ -1,0 +1,11 @@
+# Multinomial logistic regression contract, from the Phase 8 roadmap.
+# Format and verification rules: docs/contracts/README.md
+
+contract multiclass_logistic
+source crates/tpt-ml-proven-linear/src/multiclass.rs
+
+requires[rows_positive]: X.rows >= 1
+requires[c_positive]: C > 0
+
+# At the returned point the gradient of the objective is within the tolerance.
+ensures[stationary]: gradient_norm(X, y, coef, intercept) <= tol

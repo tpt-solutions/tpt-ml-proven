@@ -169,3 +169,46 @@ fn elasticnet_kkt_contract_holds_at_default_tolerance() {
         }
     }
 }
+
+#[test]
+fn multiclass_logistic_matches_scikit_learn() {
+    use tpt_ml_proven_linear::MulticlassLogistic;
+
+    let fx = load("logistic_multiclass_c1");
+    let rows: usize = fx["rows"][0].parse().unwrap();
+    let cols: usize = fx["cols"][0].parse().unwrap();
+    let classes: usize = fx["classes"][0].parse().unwrap();
+    let c: f64 = fx["C"][0].parse().unwrap();
+    let x = floats(&fx, "x");
+    let y = floats(&fx, "y");
+
+    let mut m = MulticlassLogistic::<f64>::new(c)
+        .with_tol(1e-10)
+        .with_max_iter(1000);
+    SupervisedEstimator::fit(&mut m, DenseView::new(&x, rows, cols).unwrap(), &y[..]).unwrap();
+
+    assert_eq!(m.classes().unwrap().len(), classes);
+    // Coefficients are unique; intercepts are not (see the module docs), so compare the
+    // coefficients and the fitted probabilities.
+    for (j, &w) in floats(&fx, "coef").iter().enumerate() {
+        assert_close(m.coef().unwrap()[j], w, &format!("multiclass: coef[{j}]"));
+    }
+    let proba = m
+        .predict_proba(DenseView::new(&x, rows, cols).unwrap())
+        .unwrap();
+    for (i, (&p, &q)) in proba.iter().zip(&floats(&fx, "proba")).enumerate() {
+        assert_close(p, q, &format!("multiclass: proba[{i}]"));
+    }
+    // Predicted labels are the argmax of scikit-learn's probabilities.
+    let labels = Predictor::predict(&m, DenseView::new(&x, rows, cols).unwrap()).unwrap();
+    let sk_proba = floats(&fx, "proba");
+    for (i, &l) in labels.iter().enumerate() {
+        let row = &sk_proba[i * classes..(i + 1) * classes];
+        let best = (0..classes).fold(0, |b, c| if row[c] > row[b] { c } else { b });
+        assert_eq!(
+            l,
+            m.classes().unwrap()[best],
+            "predicted label differs at {i}"
+        );
+    }
+}

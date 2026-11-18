@@ -14,8 +14,10 @@
 //! Computation is in `f64`, and the intercept is fitted by centring the data.
 
 mod logistic;
+mod multiclass;
 
 pub use logistic::LogisticRegression;
+pub use multiclass::MulticlassLogistic;
 
 use tpt_ml_proven_core::error::{Error, ShapeError};
 use tpt_ml_proven_core::{
