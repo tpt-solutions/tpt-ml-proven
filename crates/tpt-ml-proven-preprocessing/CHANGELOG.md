@@ -5,4 +5,9 @@ All notable changes to `tpt-ml-proven-preprocessing` are recorded here. The form
 
 ## [Unreleased]
 
-No changes yet. The crate is a placeholder; see the roadmap in [todo.md](../../todo.md).
+### Added
+
+- `StandardScaler`, `MinMaxScaler` and `RobustScaler`, with `inverse_transform`.
+- `OneHotEncoder` and `OrdinalEncoder`. Unknown categories are an error.
+- `SimpleImputer` with mean, median, most-frequent and constant strategies.
+- Parity tests (1e-9) for the three scalers against scikit-learn on a committed fixture.
