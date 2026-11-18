@@ -10,8 +10,10 @@
 //! results are the same for any thread count.
 
 pub mod dbscan;
+pub mod hdbscan;
 pub mod kmeans;
 mod rng;
 
 pub use dbscan::Dbscan;
+pub use hdbscan::Hdbscan;
 pub use kmeans::{Init, KMeans};

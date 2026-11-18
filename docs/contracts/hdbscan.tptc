@@ -1,0 +1,12 @@
+# HDBSCAN contract, from the Phase 8 roadmap.
+# Format and verification rules: docs/contracts/README.md
+
+contract hdbscan
+source crates/tpt-ml-proven-clustering/src/hdbscan.rs
+
+requires[rows_positive]: X.rows >= 1
+requires[min_cluster_size_min]: min_cluster_size >= 2
+requires[min_samples_positive]: min_samples >= 1
+
+# Every label is noise or an index of a selected cluster.
+ensures[labels_valid]: label(i) == -1 || label(i) < n_clusters

@@ -13,7 +13,7 @@
 //! exactly. Neighbour search is brute force, `O(n²·d)`, with no index structure.
 
 use tpt_ml_proven_core::error::Error;
-use tpt_ml_proven_core::{ArrayView, Float, UnsupervisedEstimator};
+use tpt_ml_proven_core::{ensures, requires, ArrayView, Float, UnsupervisedEstimator};
 
 use crate::kmeans::{for_each_row, sq_dist};
 
@@ -98,14 +98,22 @@ impl<F: Float> UnsupervisedEstimator for Dbscan<F> {
         if !x.all_finite() {
             return Err(Error::NonFinite { what: "X" });
         }
+        requires!(rows >= 1, "dbscan.rows_positive");
+        requires!(self.eps > F::ZERO, "dbscan.eps_positive");
+        requires!(self.min_samples >= 1, "dbscan.min_samples_positive");
 
         let mut data = Vec::with_capacity(rows * cols);
         for_each_row(&x, |_, row| data.extend_from_slice(row));
         let eps2 = self.eps * self.eps;
 
-        let is_core: Vec<bool> = (0..rows)
-            .map(|i| neighbours(&data, rows, cols, i, eps2).len() >= self.min_samples)
+        let counts: Vec<usize> = (0..rows)
+            .map(|i| neighbours(&data, rows, cols, i, eps2).len())
             .collect();
+        let is_core: Vec<bool> = counts.iter().map(|&c| c >= self.min_samples).collect();
+        ensures!(
+            (0..rows).all(|i| !is_core[i] || counts[i] >= self.min_samples),
+            "dbscan.core_has_min_neighbours"
+        );
 
         let mut labels = vec![NOISE; rows];
         let mut next_label: i64 = 0;
@@ -130,6 +138,17 @@ impl<F: Float> UnsupervisedEstimator for Dbscan<F> {
             next_label += 1;
         }
 
+        // Noise is never a core sample, and every label is a cluster id or noise.
+        ensures!(
+            (0..rows).all(|i| labels[i] != NOISE || !is_core[i]),
+            "dbscan.noise_not_core"
+        );
+        ensures!(
+            labels
+                .iter()
+                .all(|&l| l == NOISE || (0..next_label).contains(&l)),
+            "dbscan.labels_valid"
+        );
         let core = (0..rows).filter(|&i| is_core[i]).collect();
         self.labels = Some(labels);
         self.core = Some(core);

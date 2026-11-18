@@ -1,0 +1,14 @@
+# DBSCAN contract, from the Phase 8 roadmap.
+# Format and verification rules: docs/contracts/README.md
+
+contract dbscan
+source crates/tpt-ml-proven-clustering/src/dbscan.rs
+
+requires[rows_positive]: X.rows >= 1
+requires[eps_positive]: eps > 0
+requires[min_samples_positive]: min_samples >= 1
+
+# Core samples have at least min_samples neighbours (including themselves).
+ensures[core_has_min_neighbours]: is_core(i) == 1 => neighbour_count(i) >= min_samples
+# Noise is never a core sample.
+ensures[noise_not_core]: is_noise(i) == 1 => is_core(i) == 0

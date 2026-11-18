@@ -7,6 +7,12 @@ All notable changes to `tpt-ml-proven-clustering` are recorded here. The format 
 
 ### Added
 
+- `Hdbscan`: excess-of-mass cluster selection, following scikit-learn. Partition and noise
+  match scikit-learn on a committed fixture (`hdbscan_blobs_noise`). O(n²) memory.
+- Runtime contract checks for DBSCAN (`dbscan.tptc`) and HDBSCAN (`hdbscan.tptc`).
+
+### Added
+
 - `KMeans` (Lloyd's algorithm) with k-means++ and random initialisation, seeded and
   reproducible, for dense and sparse input.
 - Empty-cluster handling: an empty cluster keeps its previous centre.
