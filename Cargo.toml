@@ -12,6 +12,7 @@ members = [
     "crates/tpt-ml-proven-preprocessing",
     "crates/tpt-ml-proven-ffi",
     "crates/tpt-ml-proven",
+    "crates/tpt-ml-proven-cli",
 ]
 
 [workspace.package]

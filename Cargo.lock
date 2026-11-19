@@ -16,6 +16,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "tpt-ml-proven-cli"
+version = "0.0.0"
+dependencies = [
+ "tpt-ml-proven",
+]
+
+[[package]]
 name = "tpt-ml-proven-clustering"
 version = "0.0.0"
 dependencies = [

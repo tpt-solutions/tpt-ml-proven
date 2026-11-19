@@ -1,0 +1,23 @@
+[package]
+name = "tpt-ml-proven-cli"
+description = "Command-line tool for tpt-ml-proven: fit, predict and transform from CSV, inspect model files, and verify them against their invariants."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+readme = "README.md"
+keywords = ["machine-learning", "cli", "csv", "model-file", "verification"]
+categories = ["command-line-utilities", "science"]
+publish = false
+
+[[bin]]
+name = "tpt-ml"
+path = "src/main.rs"
+
+[dependencies]
+tpt-ml-proven = { version = "0.0.0", path = "../tpt-ml-proven" }
+
+[lints]
+workspace = true
