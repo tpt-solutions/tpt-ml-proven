@@ -452,3 +452,194 @@ mod tests {
         ));
     }
 }
+
+// ---------------------------------------------------------------- model files
+
+use tpt_ml_proven_core::persist::{kind, Reader, Writer};
+
+fn invalid(reason: &'static str) -> Error {
+    Error::Format { reason }
+}
+
+fn write_affine(w: &mut Writer, a: &Affine) {
+    w.f64s(&a.offset);
+    w.f64s(&a.factor);
+}
+
+fn read_affine(r: &mut Reader<'_>) -> Result<Affine, Error> {
+    let offset = r.f64s()?;
+    let factor = r.f64s()?;
+    if offset.len() != factor.len() {
+        return Err(invalid("scaler offset and factor lengths differ"));
+    }
+    if factor.iter().any(|&f| f <= 0.0) {
+        return Err(invalid("scaler factor is not positive"));
+    }
+    Ok(Affine { offset, factor })
+}
+
+/// Shared load path for the scalers that hold only an affine map.
+fn read_affine_model(bytes: &[u8], expected: u32) -> Result<Option<Affine>, Error> {
+    let mut r = Reader::new(bytes, expected)?;
+    let fitted = if r.bool()? {
+        Some(read_affine(&mut r)?)
+    } else {
+        None
+    };
+    r.finish()?;
+    Ok(fitted)
+}
+
+impl<F: Float> MinMaxScaler<F> {
+    /// Serialises the fitted scaler to a model file.
+    pub fn to_bytes(&self) -> Result<Vec<u8>, Error> {
+        let mut w = Writer::for_float::<F>(kind::MINMAX_SCALER);
+        match &self.fitted {
+            None => w.bool(false),
+            Some(a) => {
+                w.bool(true);
+                write_affine(&mut w, a);
+            }
+        }
+        Ok(w.finish())
+    }
+
+    /// Loads a scaler written by [`MinMaxScaler::to_bytes`].
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, Error> {
+        Ok(Self {
+            fitted: read_affine_model(bytes, kind::MINMAX_SCALER)?,
+            marker: core::marker::PhantomData,
+        })
+    }
+}
+
+impl<F: Float> RobustScaler<F> {
+    /// Serialises the fitted scaler to a model file.
+    pub fn to_bytes(&self) -> Result<Vec<u8>, Error> {
+        let mut w = Writer::for_float::<F>(kind::ROBUST_SCALER);
+        match &self.fitted {
+            None => w.bool(false),
+            Some(a) => {
+                w.bool(true);
+                write_affine(&mut w, a);
+            }
+        }
+        Ok(w.finish())
+    }
+
+    /// Loads a scaler written by [`RobustScaler::to_bytes`].
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, Error> {
+        Ok(Self {
+            fitted: read_affine_model(bytes, kind::ROBUST_SCALER)?,
+            marker: core::marker::PhantomData,
+        })
+    }
+}
+
+impl<F: Float> StandardScaler<F> {
+    /// Serialises the fitted scaler to a model file.
+    pub fn to_bytes(&self) -> Result<Vec<u8>, Error> {
+        let mut w = Writer::for_float::<F>(kind::STANDARD_SCALER);
+        match &self.fitted {
+            None => w.bool(false),
+            Some(a) => {
+                w.bool(true);
+                write_affine(&mut w, a);
+                w.f64s(&self.mean);
+                w.f64s(&self.scale);
+            }
+        }
+        Ok(w.finish())
+    }
+
+    /// Loads a scaler written by [`StandardScaler::to_bytes`]. The per-column mean and scale
+    /// must agree with the affine map, which is `factor = 1 / scale`.
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, Error> {
+        let mut r = Reader::new(bytes, kind::STANDARD_SCALER)?;
+        let (fitted, mean, scale) = if r.bool()? {
+            let a = read_affine(&mut r)?;
+            let mean = r.f64s()?;
+            let scale = r.f64s()?;
+            (Some(a), mean, scale)
+        } else {
+            (None, Vec::new(), Vec::new())
+        };
+        r.finish()?;
+        if let Some(a) = &fitted {
+            if mean.len() != a.factor.len() || scale.len() != a.factor.len() {
+                return Err(invalid("standard scaler mean and scale lengths differ"));
+            }
+            // The map is x ↦ (x − mean) / scale, so factor = 1 / scale and offset = −mean / scale.
+            for (i, (&f, &s)) in a.factor.iter().zip(&scale).enumerate() {
+                let m = mean[i];
+                let want_offset = -m / s;
+                if s <= 0.0
+                    || (f * s - 1.0).abs() > 1e-9
+                    || (a.offset[i] - want_offset).abs() > 1e-9 * (1.0 + want_offset.abs())
+                {
+                    return Err(invalid(
+                        "standard scaler mean and scale disagree with its map",
+                    ));
+                }
+            }
+        }
+        Ok(Self {
+            fitted,
+            mean,
+            scale,
+            marker: core::marker::PhantomData,
+        })
+    }
+}
+
+#[cfg(test)]
+mod persist_tests {
+    use super::*;
+    use tpt_ml_proven_core::{DenseView, Transformer, UnsupervisedEstimator};
+
+    fn data() -> Vec<f64> {
+        vec![1.0, 10.0, 2.0, 30.0, 4.0, 10.0, 7.0, 50.0, 3.0, 20.0]
+    }
+
+    fn same<T: Transformer<Float = f64, Output = Dense<f64>>>(a: &T, b: &T) -> bool {
+        let x = data();
+        let u = a.transform(DenseView::new(&x, 5, 2).unwrap()).unwrap();
+        let v = b.transform(DenseView::new(&x, 5, 2).unwrap()).unwrap();
+        u == v
+    }
+
+    #[test]
+    fn standard_scaler_round_trips() {
+        let x = data();
+        let mut s = StandardScaler::<f64>::new();
+        UnsupervisedEstimator::fit(&mut s, DenseView::new(&x, 5, 2).unwrap()).unwrap();
+        let loaded = StandardScaler::<f64>::from_bytes(&s.to_bytes().unwrap()).unwrap();
+        assert_eq!(loaded, s);
+        assert!(same(&s, &loaded));
+    }
+
+    #[test]
+    fn minmax_and_robust_scalers_round_trip() {
+        let x = data();
+        let mut m = MinMaxScaler::<f64>::new();
+        UnsupervisedEstimator::fit(&mut m, DenseView::new(&x, 5, 2).unwrap()).unwrap();
+        let loaded = MinMaxScaler::<f64>::from_bytes(&m.to_bytes().unwrap()).unwrap();
+        assert_eq!(loaded, m);
+        assert!(same(&m, &loaded));
+
+        let mut r = RobustScaler::<f64>::new();
+        UnsupervisedEstimator::fit(&mut r, DenseView::new(&x, 5, 2).unwrap()).unwrap();
+        let loaded = RobustScaler::<f64>::from_bytes(&r.to_bytes().unwrap()).unwrap();
+        assert_eq!(loaded, r);
+        assert!(same(&r, &loaded));
+    }
+
+    #[test]
+    fn unfitted_scalers_round_trip() {
+        let s = StandardScaler::<f64>::new();
+        assert_eq!(
+            StandardScaler::<f64>::from_bytes(&s.to_bytes().unwrap()).unwrap(),
+            s
+        );
+    }
+}

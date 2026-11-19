@@ -62,6 +62,15 @@ from.
 | `MULTICLASS_LOGISTIC` | 7 | `MulticlassLogistic` |
 | `DECISION_TREE` | 8 | `DecisionTreeRegressor` |
 | `GRADIENT_BOOSTING` | 9 | `GradientBoostingRegressor` |
+| `TRUNCATED_SVD` | 10 | `TruncatedSvd` |
+| `NMF` | 11 | `Nmf` |
+| `STUMP_FOREST` | 12 | `StumpForest` |
+| `STANDARD_SCALER` | 13 | `StandardScaler` |
+| `MINMAX_SCALER` | 14 | `MinMaxScaler` |
+| `ROBUST_SCALER` | 15 | `RobustScaler` |
+| `ONE_HOT_ENCODER` | 16 | `OneHotEncoder` |
+| `ORDINAL_ENCODER` | 17 | `OrdinalEncoder` |
+| `SIMPLE_IMPUTER` | 18 | `SimpleImputer` |
 
 A model's payload starts with its parameters, then a flag for whether it is fitted, then the
 fitted state. A loaded model can be refitted with the same settings.
@@ -92,7 +101,16 @@ Each committed golden file is a version 1 model that a test loads on every run:
 * `crates/tpt-ml-proven-decomposition/tests/fixtures/pca_v1.tpml`
 
 These are version 1 files, kept to prove that version 1 still loads. Version 2 is pinned by a
-header test in `persist.rs`. If one of these tests fails after a change, the change has broken
+header test in `persist.rs`.
+
+Version 2 golden files, one per model kind added since version 1. A test loads each file and
+checks that saving it back gives the same bytes, which pins the layout. Each is written by an
+ignored `regenerate_golden` test (run with `--ignored`), never by hand:
+
+* `crates/tpt-ml-proven-decomposition/tests/fixtures/svd_v2.tpml`, `nmf_v2.tpml`
+* `crates/tpt-ml-proven-ensemble/tests/fixtures/stump_forest_v2.tpml`
+* `crates/tpt-ml-proven-preprocessing/tests/fixtures/` (`standard_scaler_v2`, `minmax_scaler_v2`,
+  `robust_scaler_v2`, `one_hot_v2`, `ordinal_v2`, `simple_imputer_v2`, each `.tpml`) If one of these tests fails after a change, the change has broken
 existing files. Bump the format version instead of editing the fixture.
 
 ## Worked example: the header

@@ -253,3 +253,124 @@ mod tests {
         ));
     }
 }
+
+// ---------------------------------------------------------------- model files
+
+use tpt_ml_proven_core::persist::{kind, Reader, Writer};
+
+fn invalid(reason: &'static str) -> Error {
+    Error::Format { reason }
+}
+
+/// Writes the learned categories: a flag, then one sorted value list per feature.
+fn write_categories(w: &mut Writer, cats: &Option<Vec<Vec<f64>>>) {
+    match cats {
+        None => w.bool(false),
+        Some(cols) => {
+            w.bool(true);
+            w.usize(cols.len());
+            for col in cols {
+                w.f64s(col);
+            }
+        }
+    }
+}
+
+fn read_categories(r: &mut Reader<'_>) -> Result<Option<Vec<Vec<f64>>>, Error> {
+    if !r.bool()? {
+        return Ok(None);
+    }
+    let n = r.usize()?;
+    let mut cols = Vec::new();
+    for _ in 0..n {
+        cols.push(r.f64s()?);
+    }
+    if cols.is_empty() || cols.iter().any(|c| c.is_empty()) {
+        return Err(invalid("encoder has a feature with no categories"));
+    }
+    // Lookups use binary search, so each list must be strictly increasing.
+    if cols.iter().any(|c| c.windows(2).any(|w| w[0] >= w[1])) {
+        return Err(invalid("encoder categories are not sorted and distinct"));
+    }
+    Ok(Some(cols))
+}
+
+impl<F: Float> OneHotEncoder<F> {
+    /// Serialises the fitted encoder to a model file.
+    pub fn to_bytes(&self) -> Result<Vec<u8>, Error> {
+        let mut w = Writer::for_float::<F>(kind::ONE_HOT_ENCODER);
+        write_categories(&mut w, &self.categories);
+        Ok(w.finish())
+    }
+
+    /// Loads an encoder written by [`OneHotEncoder::to_bytes`].
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, Error> {
+        let mut r = Reader::new(bytes, kind::ONE_HOT_ENCODER)?;
+        let categories = read_categories(&mut r)?;
+        r.finish()?;
+        Ok(Self {
+            categories,
+            marker: core::marker::PhantomData,
+        })
+    }
+}
+
+impl<F: Float> OrdinalEncoder<F> {
+    /// Serialises the fitted encoder to a model file.
+    pub fn to_bytes(&self) -> Result<Vec<u8>, Error> {
+        let mut w = Writer::for_float::<F>(kind::ORDINAL_ENCODER);
+        write_categories(&mut w, &self.categories);
+        Ok(w.finish())
+    }
+
+    /// Loads an encoder written by [`OrdinalEncoder::to_bytes`].
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, Error> {
+        let mut r = Reader::new(bytes, kind::ORDINAL_ENCODER)?;
+        let categories = read_categories(&mut r)?;
+        r.finish()?;
+        Ok(Self {
+            categories,
+            marker: core::marker::PhantomData,
+        })
+    }
+}
+
+#[cfg(test)]
+mod persist_tests {
+    use super::*;
+    use tpt_ml_proven_core::{DenseView, Transformer, UnsupervisedEstimator};
+
+    fn data() -> Vec<f64> {
+        vec![3.0, 1.0, 1.0, 2.0, 3.0, 2.0]
+    }
+
+    #[test]
+    fn one_hot_encoder_round_trips() {
+        let x = data();
+        let mut e = OneHotEncoder::<f64>::new();
+        UnsupervisedEstimator::fit(&mut e, DenseView::new(&x, 3, 2).unwrap()).unwrap();
+        let loaded = OneHotEncoder::<f64>::from_bytes(&e.to_bytes().unwrap()).unwrap();
+        assert_eq!(loaded, e);
+        let a = Transformer::transform(&e, DenseView::new(&x, 3, 2).unwrap()).unwrap();
+        let b = Transformer::transform(&loaded, DenseView::new(&x, 3, 2).unwrap()).unwrap();
+        assert_eq!(a, b);
+    }
+
+    #[test]
+    fn ordinal_encoder_round_trips() {
+        let x = data();
+        let mut e = OrdinalEncoder::<f64>::new();
+        UnsupervisedEstimator::fit(&mut e, DenseView::new(&x, 3, 2).unwrap()).unwrap();
+        let loaded = OrdinalEncoder::<f64>::from_bytes(&e.to_bytes().unwrap()).unwrap();
+        assert_eq!(loaded, e);
+    }
+
+    #[test]
+    fn unfitted_encoders_round_trip() {
+        let e = OrdinalEncoder::<f32>::new();
+        assert_eq!(
+            OrdinalEncoder::<f32>::from_bytes(&e.to_bytes().unwrap()).unwrap(),
+            e
+        );
+    }
+}

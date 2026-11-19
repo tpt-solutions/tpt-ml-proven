@@ -210,3 +210,97 @@ mod tests {
         ));
     }
 }
+
+// ---------------------------------------------------------------- model files
+
+use tpt_ml_proven_core::persist::{kind, Reader, Writer};
+
+fn invalid(reason: &'static str) -> Error {
+    Error::Format { reason }
+}
+
+impl<F: Float> SimpleImputer<F> {
+    /// Serialises the imputer (strategy and learned fill values) to a model file.
+    pub fn to_bytes(&self) -> Result<Vec<u8>, Error> {
+        let mut w = Writer::for_float::<F>(kind::SIMPLE_IMPUTER);
+        match self.strategy {
+            ImputeStrategy::Mean => w.usize(0),
+            ImputeStrategy::Median => w.usize(1),
+            ImputeStrategy::MostFrequent => w.usize(2),
+            ImputeStrategy::Constant(_) => w.usize(3),
+        }
+        // Always written, so the layout does not depend on the strategy.
+        w.f64(match self.strategy {
+            ImputeStrategy::Constant(v) => v,
+            _ => 0.0,
+        });
+        match &self.fill {
+            None => w.bool(false),
+            Some(fill) => {
+                w.bool(true);
+                w.f64s(fill);
+            }
+        }
+        Ok(w.finish())
+    }
+
+    /// Loads an imputer written by [`SimpleImputer::to_bytes`].
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, Error> {
+        let mut r = Reader::new(bytes, kind::SIMPLE_IMPUTER)?;
+        let tag = r.usize()?;
+        let constant = r.f64()?;
+        let strategy = match tag {
+            0 => ImputeStrategy::Mean,
+            1 => ImputeStrategy::Median,
+            2 => ImputeStrategy::MostFrequent,
+            3 => ImputeStrategy::Constant(constant),
+            _ => return Err(invalid("unknown imputation strategy")),
+        };
+        let fill = if r.bool()? { Some(r.f64s()?) } else { None };
+        r.finish()?;
+        if let Some(f) = &fill {
+            if f.is_empty() {
+                return Err(invalid("imputer has no fill values"));
+            }
+        }
+        Ok(Self {
+            strategy,
+            fill,
+            marker: core::marker::PhantomData,
+        })
+    }
+}
+
+#[cfg(test)]
+mod persist_tests {
+    use super::*;
+    use tpt_ml_proven_core::{DenseView, Transformer, UnsupervisedEstimator};
+
+    #[test]
+    fn every_strategy_round_trips_with_its_fill_values() {
+        let x = vec![1.0, f64::NAN, 3.0, 4.0, 5.0, 4.0, f64::NAN, 2.0];
+        for strategy in [
+            ImputeStrategy::Mean,
+            ImputeStrategy::Median,
+            ImputeStrategy::MostFrequent,
+            ImputeStrategy::Constant(-9.0),
+        ] {
+            let mut imp = SimpleImputer::<f64>::new(strategy);
+            UnsupervisedEstimator::fit(&mut imp, DenseView::new(&x, 4, 2).unwrap()).unwrap();
+            let loaded = SimpleImputer::<f64>::from_bytes(&imp.to_bytes().unwrap()).unwrap();
+            assert_eq!(loaded, imp);
+            let a = Transformer::transform(&imp, DenseView::new(&x, 4, 2).unwrap()).unwrap();
+            let b = Transformer::transform(&loaded, DenseView::new(&x, 4, 2).unwrap()).unwrap();
+            assert_eq!(a, b);
+        }
+    }
+
+    #[test]
+    fn unfitted_imputer_round_trips() {
+        let imp = SimpleImputer::<f64>::new(ImputeStrategy::Mean);
+        assert_eq!(
+            SimpleImputer::<f64>::from_bytes(&imp.to_bytes().unwrap()).unwrap(),
+            imp
+        );
+    }
+}
