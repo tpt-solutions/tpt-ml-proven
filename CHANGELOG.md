@@ -25,10 +25,10 @@ Changes to a single crate are recorded in that crate's own changelog:
 - Phase 8 algorithms: DBSCAN, HDBSCAN, TruncatedSVD, NMF, Ridge, Lasso, ElasticNet, binary
   logistic regression (binary and multinomial), scalers, encoders, imputers and a stump forest. Each has runtime
   contract checks and a `.tptc` contract. They are exposed through the Python and WebAssembly
-  bindings, and through the C ABI except Lasso and ElasticNet. The preprocessing transformers
+  bindings and the C ABI. The preprocessing transformers
   are not exposed in any binding yet.
-- C ABI (`ffi/c`) for DBSCAN, HDBSCAN, TruncatedSVD, NMF, Ridge, logistic regression and the
-  stump forest.
+- C ABI (`ffi/c`) for DBSCAN, HDBSCAN, TruncatedSVD, NMF, Ridge, Lasso, ElasticNet, logistic
+  regression and the stump forest.
 - Python bindings (`ffi/python`): `KMeans` and `PCA`, `abi3` wheels for Python 3.9+.
 - WebAssembly bindings (`ffi/wasm`): `KMeansModel` and `PcaModel`.
 - C ABI (`ffi/c`) with a cbindgen-generated header, for the planned Go binding.

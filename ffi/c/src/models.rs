@@ -5,7 +5,6 @@
 //! `TpmlStatus` return, caller-allocated outputs with their element counts, and opaque
 //! handles freed with their `*_free` function.
 //!
-//! Lasso and ElasticNet are not exposed here yet.
 
 use std::ffi::c_double;
 
@@ -17,7 +16,7 @@ use tpt_ml_proven_core::{
 };
 use tpt_ml_proven_decomposition::{Nmf, TruncatedSvd};
 use tpt_ml_proven_ensemble::StumpForest;
-use tpt_ml_proven_linear::{LogisticRegression, MulticlassLogistic, Ridge};
+use tpt_ml_proven_linear::{ElasticNet, Lasso, LogisticRegression, MulticlassLogistic, Ridge};
 
 use super::{input, output, run, Failure, TpmlStatus};
 
@@ -514,6 +513,248 @@ pub unsafe extern "C" fn tpml_ridge_intercept(
     })
 }
 
+// ---------------------------------------------------------------- Lasso and ElasticNet
+
+/// Opaque Lasso handle.
+pub struct TpmlLasso {
+    alpha: f64,
+    max_iter: usize,
+    tol: f64,
+    fitted: Option<Lasso<f64>>,
+}
+
+/// Creates a Lasso with penalty `alpha`. Free it with `tpml_lasso_free`. Returns null if
+/// `alpha` is negative or not finite, or `tol` is not finite.
+#[no_mangle]
+pub extern "C" fn tpml_lasso_new(alpha: f64, max_iter: usize, tol: f64) -> *mut TpmlLasso {
+    if !(alpha.is_finite() && alpha >= 0.0) || !tol.is_finite() {
+        return std::ptr::null_mut();
+    }
+    Box::into_raw(Box::new(TpmlLasso {
+        alpha,
+        max_iter,
+        tol,
+        fitted: None,
+    }))
+}
+
+/// Frees a Lasso handle. Null is ignored.
+///
+/// # Safety
+/// `h` must be null or a handle from `tpml_lasso_new` that has not been freed.
+#[no_mangle]
+pub unsafe extern "C" fn tpml_lasso_free(h: *mut TpmlLasso) {
+    if !h.is_null() {
+        drop(Box::from_raw(h));
+    }
+}
+
+/// Fits to a row-major `rows × cols` matrix and `rows` targets.
+///
+/// # Safety
+/// `h` must be a live handle, `data` valid for `rows * cols` reads, and `y` for `rows` reads.
+#[no_mangle]
+pub unsafe extern "C" fn tpml_lasso_fit(
+    h: *mut TpmlLasso,
+    data: *const c_double,
+    rows: usize,
+    cols: usize,
+    y: *const c_double,
+) -> TpmlStatus {
+    run(|| {
+        let h = h.as_mut().ok_or_else(null_handle)?;
+        let x = input(data, rows, cols)?;
+        let t = targets(y, rows)?;
+        let mut m = Lasso::<f64>::new(h.alpha)
+            .with_max_iter(h.max_iter)
+            .with_tol(h.tol);
+        SupervisedEstimator::fit(&mut m, DenseView::new(x, rows, cols)?, t)?;
+        h.fitted = Some(m);
+        Ok(())
+    })
+}
+
+/// Predicts for a row-major `rows × cols` matrix. `out` receives `rows` values.
+///
+/// # Safety
+/// `h` must be a live handle, `data` valid for `rows * cols` reads, and `out` valid for
+/// `out_len` writes.
+#[no_mangle]
+pub unsafe extern "C" fn tpml_lasso_predict(
+    h: *const TpmlLasso,
+    data: *const c_double,
+    rows: usize,
+    cols: usize,
+    out: *mut c_double,
+    out_len: usize,
+) -> TpmlStatus {
+    run(|| {
+        let h = h.as_ref().ok_or_else(null_handle)?;
+        let m = h.fitted.as_ref().ok_or(Error::NotFitted)?;
+        let x = input(data, rows, cols)?;
+        let p = Predictor::predict(m, DenseView::new(x, rows, cols)?)?;
+        output(out, out_len, &p)
+    })
+}
+
+/// Writes the coefficients (`cols` values) into `out`.
+///
+/// # Safety
+/// `h` must be a live handle and `out` valid for `out_len` writes.
+#[no_mangle]
+pub unsafe extern "C" fn tpml_lasso_coef(
+    h: *const TpmlLasso,
+    out: *mut c_double,
+    out_len: usize,
+) -> TpmlStatus {
+    run(|| {
+        let h = h.as_ref().ok_or_else(null_handle)?;
+        let m = h.fitted.as_ref().ok_or(Error::NotFitted)?;
+        output(out, out_len, m.coef().unwrap_or(&[]))
+    })
+}
+
+/// Writes the intercept into `out`.
+///
+/// # Safety
+/// `h` must be a live handle and `out` valid for one write.
+#[no_mangle]
+pub unsafe extern "C" fn tpml_lasso_intercept(
+    h: *const TpmlLasso,
+    out: *mut c_double,
+) -> TpmlStatus {
+    run(|| {
+        let h = h.as_ref().ok_or_else(null_handle)?;
+        let m = h.fitted.as_ref().ok_or(Error::NotFitted)?;
+        let b = m.intercept().ok_or(Error::NotFitted)?;
+        output(out, 1, &[b])
+    })
+}
+
+/// Opaque ElasticNet handle.
+pub struct TpmlElasticNet {
+    alpha: f64,
+    l1_ratio: f64,
+    max_iter: usize,
+    tol: f64,
+    fitted: Option<ElasticNet<f64>>,
+}
+
+/// Creates an ElasticNet with penalty `alpha` and mixing `l1_ratio` in `[0, 1]`. Free it with
+/// `tpml_elastic_net_free`. Returns null for invalid parameters.
+#[no_mangle]
+pub extern "C" fn tpml_elastic_net_new(
+    alpha: f64,
+    l1_ratio: f64,
+    max_iter: usize,
+    tol: f64,
+) -> *mut TpmlElasticNet {
+    if !(alpha.is_finite() && alpha >= 0.0) || !(0.0..=1.0).contains(&l1_ratio) || !tol.is_finite()
+    {
+        return std::ptr::null_mut();
+    }
+    Box::into_raw(Box::new(TpmlElasticNet {
+        alpha,
+        l1_ratio,
+        max_iter,
+        tol,
+        fitted: None,
+    }))
+}
+
+/// Frees an ElasticNet handle. Null is ignored.
+///
+/// # Safety
+/// `h` must be null or a handle from `tpml_elastic_net_new` that has not been freed.
+#[no_mangle]
+pub unsafe extern "C" fn tpml_elastic_net_free(h: *mut TpmlElasticNet) {
+    if !h.is_null() {
+        drop(Box::from_raw(h));
+    }
+}
+
+/// Fits to a row-major `rows × cols` matrix and `rows` targets.
+///
+/// # Safety
+/// `h` must be a live handle, `data` valid for `rows * cols` reads, and `y` for `rows` reads.
+#[no_mangle]
+pub unsafe extern "C" fn tpml_elastic_net_fit(
+    h: *mut TpmlElasticNet,
+    data: *const c_double,
+    rows: usize,
+    cols: usize,
+    y: *const c_double,
+) -> TpmlStatus {
+    run(|| {
+        let h = h.as_mut().ok_or_else(null_handle)?;
+        let x = input(data, rows, cols)?;
+        let t = targets(y, rows)?;
+        let mut m = ElasticNet::<f64>::new(h.alpha, h.l1_ratio)
+            .with_max_iter(h.max_iter)
+            .with_tol(h.tol);
+        SupervisedEstimator::fit(&mut m, DenseView::new(x, rows, cols)?, t)?;
+        h.fitted = Some(m);
+        Ok(())
+    })
+}
+
+/// Predicts for a row-major `rows × cols` matrix. `out` receives `rows` values.
+///
+/// # Safety
+/// `h` must be a live handle, `data` valid for `rows * cols` reads, and `out` valid for
+/// `out_len` writes.
+#[no_mangle]
+pub unsafe extern "C" fn tpml_elastic_net_predict(
+    h: *const TpmlElasticNet,
+    data: *const c_double,
+    rows: usize,
+    cols: usize,
+    out: *mut c_double,
+    out_len: usize,
+) -> TpmlStatus {
+    run(|| {
+        let h = h.as_ref().ok_or_else(null_handle)?;
+        let m = h.fitted.as_ref().ok_or(Error::NotFitted)?;
+        let x = input(data, rows, cols)?;
+        let p = Predictor::predict(m, DenseView::new(x, rows, cols)?)?;
+        output(out, out_len, &p)
+    })
+}
+
+/// Writes the coefficients (`cols` values) into `out`.
+///
+/// # Safety
+/// `h` must be a live handle and `out` valid for `out_len` writes.
+#[no_mangle]
+pub unsafe extern "C" fn tpml_elastic_net_coef(
+    h: *const TpmlElasticNet,
+    out: *mut c_double,
+    out_len: usize,
+) -> TpmlStatus {
+    run(|| {
+        let h = h.as_ref().ok_or_else(null_handle)?;
+        let m = h.fitted.as_ref().ok_or(Error::NotFitted)?;
+        output(out, out_len, m.coef().unwrap_or(&[]))
+    })
+}
+
+/// Writes the intercept into `out`.
+///
+/// # Safety
+/// `h` must be a live handle and `out` valid for one write.
+#[no_mangle]
+pub unsafe extern "C" fn tpml_elastic_net_intercept(
+    h: *const TpmlElasticNet,
+    out: *mut c_double,
+) -> TpmlStatus {
+    run(|| {
+        let h = h.as_ref().ok_or_else(null_handle)?;
+        let m = h.fitted.as_ref().ok_or(Error::NotFitted)?;
+        let b = m.intercept().ok_or(Error::NotFitted)?;
+        output(out, 1, &[b])
+    })
+}
+
 // ---------------------------------------------------------------- logistic regression
 
 enum LogitState {
@@ -835,5 +1076,27 @@ mod tests {
             tpml_ridge_free(h);
         }
         assert!(tpml_stump_forest_new(0, 0).is_null());
+        assert!(tpml_elastic_net_new(0.1, 1.5, 10, 1e-6).is_null());
+    }
+
+    #[test]
+    fn lasso_zeroes_an_unused_feature() {
+        let x = [
+            0.0_f64, 5.0, 1.0, -3.0, 2.0, 7.0, 3.0, 1.0, 4.0, -2.0, 5.0, 0.5,
+        ];
+        let y: Vec<f64> = (0..6).map(|i| 2.0 * x[i * 2]).collect();
+        unsafe {
+            let h = tpml_lasso_new(0.5, 10000, 1e-10);
+            assert!(!h.is_null());
+            assert_eq!(
+                tpml_lasso_fit(h, x.as_ptr(), 6, 2, y.as_ptr()),
+                TpmlStatus::Ok
+            );
+            let mut coef = [0.0_f64; 2];
+            assert_eq!(tpml_lasso_coef(h, coef.as_mut_ptr(), 2), TpmlStatus::Ok);
+            assert!(coef[1].abs() < 1e-12);
+            tpml_lasso_free(h);
+        }
+        assert!(tpml_lasso_new(-1.0, 10, 1e-6).is_null());
     }
 }

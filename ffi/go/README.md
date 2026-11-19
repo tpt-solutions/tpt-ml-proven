@@ -32,4 +32,4 @@ z, _ := p.Transform(x)
 - Data is `[][]float64`. Rows must be non-empty and of equal length.
 - Errors wrap the native status. `errors.Is(err, mlproven.ErrNotFitted)` checks for a call before `Fit`.
 - Estimators hold native memory. Call `Close`. A finalizer is a fallback only.
-- The Phase 8 estimators are not yet in Go. The C ABI covers them except Lasso and ElasticNet.
+- The Phase 8 estimators are not yet in Go. The C ABI covers all of them.

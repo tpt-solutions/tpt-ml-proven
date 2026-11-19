@@ -44,6 +44,11 @@ typedef enum tpml_TpmlStatus {
 typedef struct tpml_TpmlDbscan tpml_TpmlDbscan;
 
 /**
+ * Opaque ElasticNet handle.
+ */
+typedef struct tpml_TpmlElasticNet tpml_TpmlElasticNet;
+
+/**
  * Opaque HDBSCAN handle.
  */
 typedef struct tpml_TpmlHdbscan tpml_TpmlHdbscan;
@@ -52,6 +57,11 @@ typedef struct tpml_TpmlHdbscan tpml_TpmlHdbscan;
  * Opaque KMeans handle.
  */
 typedef struct tpml_TpmlKMeans tpml_TpmlKMeans;
+
+/**
+ * Opaque Lasso handle.
+ */
+typedef struct tpml_TpmlLasso tpml_TpmlLasso;
 
 /**
  * Opaque logistic regression handle.
@@ -461,6 +471,125 @@ enum tpml_TpmlStatus tpml_ridge_coef(const struct tpml_TpmlRidge *h,
  * `h` must be a live handle and `out` valid for one write.
  */
 enum tpml_TpmlStatus tpml_ridge_intercept(const struct tpml_TpmlRidge *h, double *out);
+
+/**
+ * Creates a Lasso with penalty `alpha`. Free it with `tpml_lasso_free`. Returns null if
+ * `alpha` is negative or not finite, or `tol` is not finite.
+ */
+struct tpml_TpmlLasso *tpml_lasso_new(double alpha, uintptr_t max_iter, double tol);
+
+/**
+ * Frees a Lasso handle. Null is ignored.
+ *
+ * # Safety
+ * `h` must be null or a handle from `tpml_lasso_new` that has not been freed.
+ */
+void tpml_lasso_free(struct tpml_TpmlLasso *h);
+
+/**
+ * Fits to a row-major `rows × cols` matrix and `rows` targets.
+ *
+ * # Safety
+ * `h` must be a live handle, `data` valid for `rows * cols` reads, and `y` for `rows` reads.
+ */
+enum tpml_TpmlStatus tpml_lasso_fit(struct tpml_TpmlLasso *h,
+                                    const double *data,
+                                    uintptr_t rows,
+                                    uintptr_t cols,
+                                    const double *y);
+
+/**
+ * Predicts for a row-major `rows × cols` matrix. `out` receives `rows` values.
+ *
+ * # Safety
+ * `h` must be a live handle, `data` valid for `rows * cols` reads, and `out` valid for
+ * `out_len` writes.
+ */
+enum tpml_TpmlStatus tpml_lasso_predict(const struct tpml_TpmlLasso *h,
+                                        const double *data,
+                                        uintptr_t rows,
+                                        uintptr_t cols,
+                                        double *out,
+                                        uintptr_t out_len);
+
+/**
+ * Writes the coefficients (`cols` values) into `out`.
+ *
+ * # Safety
+ * `h` must be a live handle and `out` valid for `out_len` writes.
+ */
+enum tpml_TpmlStatus tpml_lasso_coef(const struct tpml_TpmlLasso *h,
+                                     double *out,
+                                     uintptr_t out_len);
+
+/**
+ * Writes the intercept into `out`.
+ *
+ * # Safety
+ * `h` must be a live handle and `out` valid for one write.
+ */
+enum tpml_TpmlStatus tpml_lasso_intercept(const struct tpml_TpmlLasso *h, double *out);
+
+/**
+ * Creates an ElasticNet with penalty `alpha` and mixing `l1_ratio` in `[0, 1]`. Free it with
+ * `tpml_elastic_net_free`. Returns null for invalid parameters.
+ */
+struct tpml_TpmlElasticNet *tpml_elastic_net_new(double alpha,
+                                                 double l1_ratio,
+                                                 uintptr_t max_iter,
+                                                 double tol);
+
+/**
+ * Frees an ElasticNet handle. Null is ignored.
+ *
+ * # Safety
+ * `h` must be null or a handle from `tpml_elastic_net_new` that has not been freed.
+ */
+void tpml_elastic_net_free(struct tpml_TpmlElasticNet *h);
+
+/**
+ * Fits to a row-major `rows × cols` matrix and `rows` targets.
+ *
+ * # Safety
+ * `h` must be a live handle, `data` valid for `rows * cols` reads, and `y` for `rows` reads.
+ */
+enum tpml_TpmlStatus tpml_elastic_net_fit(struct tpml_TpmlElasticNet *h,
+                                          const double *data,
+                                          uintptr_t rows,
+                                          uintptr_t cols,
+                                          const double *y);
+
+/**
+ * Predicts for a row-major `rows × cols` matrix. `out` receives `rows` values.
+ *
+ * # Safety
+ * `h` must be a live handle, `data` valid for `rows * cols` reads, and `out` valid for
+ * `out_len` writes.
+ */
+enum tpml_TpmlStatus tpml_elastic_net_predict(const struct tpml_TpmlElasticNet *h,
+                                              const double *data,
+                                              uintptr_t rows,
+                                              uintptr_t cols,
+                                              double *out,
+                                              uintptr_t out_len);
+
+/**
+ * Writes the coefficients (`cols` values) into `out`.
+ *
+ * # Safety
+ * `h` must be a live handle and `out` valid for `out_len` writes.
+ */
+enum tpml_TpmlStatus tpml_elastic_net_coef(const struct tpml_TpmlElasticNet *h,
+                                           double *out,
+                                           uintptr_t out_len);
+
+/**
+ * Writes the intercept into `out`.
+ *
+ * # Safety
+ * `h` must be a live handle and `out` valid for one write.
+ */
+enum tpml_TpmlStatus tpml_elastic_net_intercept(const struct tpml_TpmlElasticNet *h, double *out);
 
 /**
  * Creates a logistic regression with inverse regularisation strength `c`. Free it with

@@ -7,7 +7,7 @@ Classical machine learning in Rust with **proven correctness**: core algorithms 
 > against scikit-learn, and available from Rust, Python and WebAssembly. The Phase 8
 > algorithms (DBSCAN, HDBSCAN, TruncatedSVD, NMF, the linear models and a stump forest) are in
 > Rust with contracts and are exposed through the Python and WebAssembly bindings. The C ABI
-> covers all but Lasso and ElasticNet. The preprocessing transformers are not yet exposed in any
+> covers all of them. The preprocessing transformers are not yet exposed in any
 > binding. The Go binding is still to come.
 
 ## Verification
