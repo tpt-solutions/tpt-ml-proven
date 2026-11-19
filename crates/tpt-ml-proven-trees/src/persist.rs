@@ -7,7 +7,7 @@
 //! leaf count, so a file that passes the checksum but describes a malformed tree is refused.
 
 use tpt_ml_proven_core::error::Error;
-use tpt_ml_proven_core::persist::{kind, Reader, Writer};
+use tpt_ml_proven_core::persist::{dtype, kind, Reader, Writer};
 
 use crate::gbm::{Boosted, DecisionTreeRegressor, GradientBoostingRegressor};
 use crate::tree::{Node, Tree};
@@ -97,7 +97,7 @@ fn read_tree(r: &mut Reader<'_>) -> Result<Tree, Error> {
 impl DecisionTreeRegressor {
     /// Serialises the model to a model file.
     pub fn to_bytes(&self) -> Result<Vec<u8>, Error> {
-        let mut w = Writer::new(kind::DECISION_TREE);
+        let mut w = Writer::with_dtype(kind::DECISION_TREE, dtype::F64);
         w.usize(self.max_depth());
         w.usize(self.min_samples_leaf());
         match self.tree() {
@@ -135,7 +135,7 @@ impl DecisionTreeRegressor {
 impl GradientBoostingRegressor {
     /// Serialises the model to a model file.
     pub fn to_bytes(&self) -> Result<Vec<u8>, Error> {
-        let mut w = Writer::new(kind::GRADIENT_BOOSTING);
+        let mut w = Writer::with_dtype(kind::GRADIENT_BOOSTING, dtype::F64);
         w.usize(self.n_estimators());
         w.f64(self.learning_rate());
         w.usize(self.max_depth());

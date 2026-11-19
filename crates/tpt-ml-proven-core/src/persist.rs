@@ -1,22 +1,27 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 TPT Solutions
 
-//! The on-disk model format, version 1.
+//! The on-disk model format, version 2. Version 1 files still load.
 //!
-//! A model file is one byte string:
+//! A model file is one byte string. Version 2 has a dtype tag after the kind:
 //!
 //! ```text
 //! offset  size  field
 //! 0       8     magic            b"TPTMLMDL"
-//! 8       4     format version   u32, little-endian, currently 1
+//! 8       4     format version   u32, little-endian, currently 2
 //! 12      4     model kind       u32, little-endian (see [`kind`])
-//! 16      …     payload          fields, in the order the model writes them
+//! 16      4     dtype            u32, little-endian: 1 = f32, 2 = f64 (see [`dtype`])
+//! 20      …     payload          fields, in the order the model writes them
 //! end-8   8     checksum         u64, little-endian, FNV-1a (64-bit) of every byte before it
 //! ```
 //!
+//! Version 1 has no dtype field: its payload starts at offset 16. Its models are reported as
+//! [`dtype::F64`], the representation they were widened to.
+//!
 //! Payload fields are little-endian: `u64` for counts and indices, `f64` for values (`f32`
 //! models are widened on write and rounded back on read), one byte for `bool`, and
-//! `u64` length followed by the values for slices.
+//! `u64` length followed by the values for slices. A stored `f64` must be finite: a NaN or
+//! infinity in the file is an error.
 //!
 //! # Compatibility rules
 //!
@@ -32,11 +37,19 @@ use alloc::vec::Vec;
 
 use crate::error::Error;
 
+/// Dtype tags stored in the version 2 header.
+pub mod dtype {
+    /// Single precision: the model was fitted over `f32`.
+    pub const F32: u32 = 1;
+    /// Double precision: the model was fitted over `f64`. Version 1 files report this too.
+    pub const F64: u32 = 2;
+}
+
 /// The eight magic bytes at the start of every model file.
 pub const MAGIC: [u8; 8] = *b"TPTMLMDL";
 
 /// The format version this crate writes, and the newest it reads.
-pub const FORMAT_VERSION: u32 = 1;
+pub const FORMAT_VERSION: u32 = 2;
 
 /// Model kind tags, stored in the header so a file cannot be loaded as the wrong type.
 pub mod kind {
@@ -60,7 +73,10 @@ pub mod kind {
     pub const GRADIENT_BOOSTING: u32 = 9;
 }
 
-const HEADER_LEN: usize = 16;
+/// Header length of a version 1 file: magic, version, kind.
+const HEADER_LEN_V1: usize = 16;
+/// Header length of a version 2 file: the version 1 header plus the dtype.
+const HEADER_LEN_V2: usize = 20;
 const TRAILER_LEN: usize = 8;
 
 /// FNV-1a, 64-bit. Used for the checksum only.
@@ -84,13 +100,24 @@ pub struct Writer {
 }
 
 impl Writer {
-    /// Starts a file for a model of the given `kind`, with the header written.
-    pub fn new(model_kind: u32) -> Self {
+    /// Starts a file for a model of the given `kind` and dtype, with the header written.
+    pub fn with_dtype(model_kind: u32, model_dtype: u32) -> Self {
         let mut buf = Vec::with_capacity(64);
         buf.extend_from_slice(&MAGIC);
         buf.extend_from_slice(&FORMAT_VERSION.to_le_bytes());
         buf.extend_from_slice(&model_kind.to_le_bytes());
+        buf.extend_from_slice(&model_dtype.to_le_bytes());
         Self { buf }
+    }
+
+    /// Starts a file for a model over float type `F`, tagged with the matching dtype.
+    pub fn for_float<F: crate::Float>(model_kind: u32) -> Self {
+        let tag = if core::mem::size_of::<F>() == 4 {
+            dtype::F32
+        } else {
+            dtype::F64
+        };
+        Self::with_dtype(model_kind, tag)
     }
 
     /// Writes a count or index.
@@ -129,6 +156,14 @@ impl Writer {
         }
     }
 
+    /// Writes a length, then each row as a length-prefixed slice of values.
+    pub fn f64_rows(&mut self, rows: &[Vec<f64>]) {
+        self.usize(rows.len());
+        for row in rows {
+            self.f64s(row);
+        }
+    }
+
     /// Appends the checksum and returns the file.
     pub fn finish(mut self) -> Vec<u8> {
         let sum = fnv1a(&self.buf);
@@ -142,24 +177,38 @@ impl Writer {
 pub struct Reader<'a> {
     payload: &'a [u8],
     pos: usize,
+    dtype: u32,
 }
 
 impl<'a> Reader<'a> {
     /// Checks the header, the version, the kind and the checksum, and returns a reader over
-    /// the payload.
+    /// the payload. Version 1 and version 2 files are both accepted.
     pub fn new(bytes: &'a [u8], expected_kind: u32) -> Result<Self, Error> {
-        if bytes.len() < HEADER_LEN + TRAILER_LEN {
+        if bytes.len() < HEADER_LEN_V1 + TRAILER_LEN {
             return Err(format_error("file is shorter than the header and checksum"));
         }
         if bytes[..8] != MAGIC {
             return Err(format_error("not a tpt-ml-proven model file"));
         }
         let version = u32::from_le_bytes(bytes[8..12].try_into().expect("4 bytes"));
-        if version == 0 || version > FORMAT_VERSION {
-            return Err(format_error(
-                "model file was written by a newer or unknown format version",
-            ));
-        }
+        let (header_len, file_dtype) = match version {
+            1 => (HEADER_LEN_V1, dtype::F64),
+            2 => {
+                if bytes.len() < HEADER_LEN_V2 + TRAILER_LEN {
+                    return Err(format_error("file is shorter than the header and checksum"));
+                }
+                let tag = u32::from_le_bytes(bytes[16..20].try_into().expect("4 bytes"));
+                if tag != dtype::F32 && tag != dtype::F64 {
+                    return Err(format_error("model file has an unknown dtype tag"));
+                }
+                (HEADER_LEN_V2, tag)
+            }
+            _ => {
+                return Err(format_error(
+                    "model file was written by a newer or unknown format version",
+                ))
+            }
+        };
         let kind = u32::from_le_bytes(bytes[12..16].try_into().expect("4 bytes"));
         if kind != expected_kind {
             return Err(format_error("model file holds a different kind of model"));
@@ -172,9 +221,15 @@ impl<'a> Reader<'a> {
             ));
         }
         Ok(Self {
-            payload: &bytes[HEADER_LEN..body_end],
+            payload: &bytes[header_len..body_end],
             pos: 0,
+            dtype: file_dtype,
         })
+    }
+
+    /// The dtype tag, [`dtype::F32`] or [`dtype::F64`]. Version 1 files report `F64`.
+    pub fn dtype(&self) -> u32 {
+        self.dtype
     }
 
     fn take(&mut self, n: usize) -> Result<&'a [u8], Error> {
@@ -201,11 +256,14 @@ impl<'a> Reader<'a> {
         ))
     }
 
-    /// Reads a value.
+    /// Reads a value. A stored NaN or infinity is an error.
     pub fn f64(&mut self) -> Result<f64, Error> {
-        Ok(f64::from_le_bytes(
-            self.take(8)?.try_into().expect("8 bytes"),
-        ))
+        let v = f64::from_le_bytes(self.take(8)?.try_into().expect("8 bytes"));
+        if v.is_finite() {
+            Ok(v)
+        } else {
+            Err(format_error("model file holds a NaN or infinite value"))
+        }
     }
 
     /// Reads a flag.
@@ -236,6 +294,16 @@ impl<'a> Reader<'a> {
         (0..n).map(|_| self.usize()).collect()
     }
 
+    /// Reads a length, then that many length-prefixed rows of values.
+    pub fn f64_rows(&mut self) -> Result<Vec<Vec<f64>>, Error> {
+        let n = self.usize()?;
+        // Every row costs at least its 8-byte length, so this bounds the allocation.
+        if n > (self.payload.len() - self.pos) / 8 {
+            return Err(format_error("row count exceeds the data in the file"));
+        }
+        (0..n).map(|_| self.f64s()).collect()
+    }
+
     /// Checks that every payload byte was read. Call last.
     pub fn finish(self) -> Result<(), Error> {
         if self.pos == self.payload.len() {
@@ -254,7 +322,7 @@ mod tests {
     use alloc::vec;
 
     fn sample() -> Vec<u8> {
-        let mut w = Writer::new(kind::RIDGE);
+        let mut w = Writer::with_dtype(kind::RIDGE, dtype::F64);
         w.usize(3);
         w.f64(-1.5);
         w.bool(true);
@@ -276,11 +344,12 @@ mod tests {
     }
 
     #[test]
-    fn version_one_header_is_pinned() {
+    fn version_two_header_is_pinned() {
         let bytes = sample();
         assert_eq!(&bytes[..8], b"TPTMLMDL");
-        assert_eq!(&bytes[8..12], &1_u32.to_le_bytes());
+        assert_eq!(&bytes[8..12], &2_u32.to_le_bytes());
         assert_eq!(&bytes[12..16], &kind::RIDGE.to_le_bytes());
+        assert_eq!(&bytes[16..20], &dtype::F64.to_le_bytes());
     }
 
     #[test]
@@ -296,7 +365,7 @@ mod tests {
 
     #[test]
     fn newer_format_version_is_refused() {
-        let mut w = Writer::new(kind::RIDGE);
+        let mut w = Writer::with_dtype(kind::RIDGE, dtype::F64);
         w.usize(0);
         let mut bytes = w.finish();
         bytes[8..12].copy_from_slice(&(FORMAT_VERSION + 1).to_le_bytes());
@@ -312,10 +381,84 @@ mod tests {
 
     #[test]
     fn huge_declared_length_does_not_allocate() {
-        let mut w = Writer::new(kind::RIDGE);
+        let mut w = Writer::with_dtype(kind::RIDGE, dtype::F64);
         w.usize(usize::MAX / 16);
         let bytes = w.finish();
         let mut r = Reader::new(&bytes, kind::RIDGE).unwrap();
         assert!(r.f64s().is_err());
+    }
+
+    /// A version 1 file as written before the dtype tag existed: no dtype field.
+    fn version_one_file(payload: &[u8]) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&MAGIC);
+        bytes.extend_from_slice(&1_u32.to_le_bytes());
+        bytes.extend_from_slice(&kind::RIDGE.to_le_bytes());
+        bytes.extend_from_slice(payload);
+        let sum = fnv1a(&bytes);
+        bytes.extend_from_slice(&sum.to_le_bytes());
+        bytes
+    }
+
+    #[test]
+    fn version_one_files_still_load_and_report_f64() {
+        let mut payload = Vec::new();
+        payload.extend_from_slice(&2.5_f64.to_le_bytes());
+        let bytes = version_one_file(&payload);
+        let mut r = Reader::new(&bytes, kind::RIDGE).unwrap();
+        assert_eq!(r.dtype(), dtype::F64);
+        assert_eq!(r.f64().unwrap(), 2.5);
+        r.finish().unwrap();
+    }
+
+    #[test]
+    fn dtype_tag_follows_the_float_type() {
+        let w = Writer::for_float::<f32>(kind::RIDGE);
+        let bytes = w.finish();
+        assert_eq!(
+            Reader::new(&bytes, kind::RIDGE).unwrap().dtype(),
+            dtype::F32
+        );
+        let w = Writer::for_float::<f64>(kind::RIDGE);
+        let bytes = w.finish();
+        assert_eq!(
+            Reader::new(&bytes, kind::RIDGE).unwrap().dtype(),
+            dtype::F64
+        );
+    }
+
+    #[test]
+    fn unknown_dtype_tag_is_refused() {
+        let mut bytes = Writer::with_dtype(kind::RIDGE, dtype::F64).finish();
+        bytes[16..20].copy_from_slice(&7_u32.to_le_bytes());
+        let body_end = bytes.len() - 8;
+        let sum = fnv1a(&bytes[..body_end]);
+        bytes[body_end..].copy_from_slice(&sum.to_le_bytes());
+        assert!(matches!(
+            Reader::new(&bytes, kind::RIDGE),
+            Err(Error::Format { .. })
+        ));
+    }
+
+    #[test]
+    fn nan_and_infinity_in_the_file_are_refused() {
+        for bad in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+            let mut w = Writer::with_dtype(kind::RIDGE, dtype::F64);
+            w.f64(bad);
+            let bytes = w.finish();
+            let mut r = Reader::new(&bytes, kind::RIDGE).unwrap();
+            assert!(r.f64().is_err(), "{bad} should be refused");
+        }
+    }
+
+    #[test]
+    fn rows_round_trip() {
+        let rows = vec![vec![1.0, 2.0], vec![], vec![3.5]];
+        let mut w = Writer::with_dtype(kind::RIDGE, dtype::F64);
+        w.f64_rows(&rows);
+        let bytes = w.finish();
+        let mut r = Reader::new(&bytes, kind::RIDGE).unwrap();
+        assert_eq!(r.f64_rows().unwrap(), rows);
+        r.finish().unwrap();
     }
 }

@@ -280,7 +280,7 @@ impl<F: Float> Predictor for LogisticRegression<F> {
 impl<F: Float> LogisticRegression<F> {
     /// Serialises the model (parameters and fitted state) to a model file.
     pub fn to_bytes(&self) -> Result<Vec<u8>, Error> {
-        let mut w = Writer::new(kind::LOGISTIC);
+        let mut w = Writer::for_float::<F>(kind::LOGISTIC);
         w.f64(self.c);
         w.usize(self.max_iter);
         w.f64(self.tol);

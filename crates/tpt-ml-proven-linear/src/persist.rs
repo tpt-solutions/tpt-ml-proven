@@ -20,7 +20,7 @@ fn invalid(reason: &'static str) -> Error {
 impl<F: Float> Ridge<F> {
     /// Serialises the model (parameter and fitted state) to a model file.
     pub fn to_bytes(&self) -> Result<Vec<u8>, Error> {
-        let mut w = Writer::new(kind::RIDGE);
+        let mut w = Writer::for_float::<F>(kind::RIDGE);
         w.f64(self.alpha);
         match &self.fitted {
             None => w.bool(false),
@@ -111,7 +111,7 @@ fn read_elastic_net<F: Float>(r: &mut Reader<'_>) -> Result<ElasticNet<F>, Error
 impl<F: Float> ElasticNet<F> {
     /// Serialises the model to a model file.
     pub fn to_bytes(&self) -> Result<Vec<u8>, Error> {
-        let mut w = Writer::new(kind::ELASTIC_NET);
+        let mut w = Writer::for_float::<F>(kind::ELASTIC_NET);
         write_elastic_net(&mut w, self);
         Ok(w.finish())
     }
@@ -128,7 +128,7 @@ impl<F: Float> ElasticNet<F> {
 impl<F: Float> Lasso<F> {
     /// Serialises the model to a model file.
     pub fn to_bytes(&self) -> Result<Vec<u8>, Error> {
-        let mut w = Writer::new(kind::LASSO);
+        let mut w = Writer::for_float::<F>(kind::LASSO);
         write_elastic_net(&mut w, &self.0);
         Ok(w.finish())
     }

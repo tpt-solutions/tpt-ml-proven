@@ -368,7 +368,7 @@ impl<F: Float> Predictor for MulticlassLogistic<F> {
 impl<F: Float> MulticlassLogistic<F> {
     /// Serialises the model (parameters and fitted state) to a model file.
     pub fn to_bytes(&self) -> Result<Vec<u8>, Error> {
-        let mut w = Writer::new(kind::MULTICLASS_LOGISTIC);
+        let mut w = Writer::for_float::<F>(kind::MULTICLASS_LOGISTIC);
         w.f64(self.c);
         w.usize(self.max_iter);
         w.f64(self.tol);

@@ -778,7 +778,7 @@ fn random_init<F: Float, X: ArrayView<Elem = F>>(x: &X, k: usize, rng: &mut Spli
 impl<F: Float> KMeans<F> {
     /// Serialises the estimator (parameters and fitted state) to a model file.
     pub fn to_bytes(&self) -> Result<Vec<u8>, Error> {
-        let mut w = Writer::new(kind::KMEANS);
+        let mut w = Writer::for_float::<F>(kind::KMEANS);
         w.usize(self.n_clusters);
         w.usize(self.max_iter);
         w.f64(self.tol);

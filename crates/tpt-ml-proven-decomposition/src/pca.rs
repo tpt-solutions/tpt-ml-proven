@@ -309,7 +309,7 @@ fn unit_norms(comps: &[Vec<f64>]) -> bool {
 impl<F: Float> Pca<F> {
     /// Serialises the estimator (parameters and fitted state) to a model file.
     pub fn to_bytes(&self) -> Result<Vec<u8>, Error> {
-        let mut w = Writer::new(kind::PCA);
+        let mut w = Writer::for_float::<F>(kind::PCA);
         w.usize(self.n_components);
         match &self.fitted {
             None => w.bool(false),

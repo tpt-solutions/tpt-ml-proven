@@ -1,4 +1,4 @@
-# Model file format, version 1
+# Model file format, version 2
 
 This is the on-disk format for fitted models. It is implemented in
 `crates/tpt-ml-proven-core/src/persist.rs`, and this document is the reference for it.
@@ -24,10 +24,14 @@ All integers and floats are little-endian.
 | Offset | Size | Field |
 | --- | --- | --- |
 | 0 | 8 | Magic, the ASCII bytes `TPTMLMDL` |
-| 8 | 4 | Format version, `u32`. Version 1 is `1` |
+| 8 | 4 | Format version, `u32`. Version 2 is `2` |
 | 12 | 4 | Model kind, `u32` (table below) |
-| 16 | … | Payload: the model's fields, in the order the model writes them |
+| 16 | 4 | Dtype, `u32`: `1` = f32, `2` = f64 (version 2 only) |
+| 20 | … | Payload: the model's fields, in the order the model writes them |
 | end − 8 | 8 | Checksum, `u64`: FNV-1a (64-bit) over every byte before it |
+
+Version 1 files have no dtype field, so their payload starts at offset 16. A version 1 file
+reads as f64, the representation its values were widened to.
 
 ### Field encodings
 
@@ -35,12 +39,15 @@ All integers and floats are little-endian.
 | --- | --- |
 | count, index (`usize`) | `u64` |
 | 64-bit integer (`u64`, e.g. a seed) | `u64` |
-| value (`f64`) | IEEE 754 binary64 |
+| value (`f64`) | IEEE 754 binary64. Must be finite: a NaN or infinity is an error on load |
 | flag (`bool`) | one byte: `0` or `1`. Any other value is an error |
 | slice of values | `u64` length, then that many values |
 | slice of indices | `u64` length, then that many `u64` |
+| matrix of values | `u64` row count, then each row as a slice of values |
 
-`f32` models are widened to `f64` on write and rounded back on read.
+`f32` models are widened to `f64` on write and rounded back on read. The dtype field records
+which float type the model was fitted over, so a reader knows the precision the values came
+from.
 
 ### Model kinds
 
@@ -66,7 +73,8 @@ fitted state. A loaded model can be refitted with the same settings.
 2. The kind must match the model being loaded. A ridge file cannot load as a lasso.
 3. Within one version, fields are never reordered, removed or re-typed.
 4. A change to a model's fields needs a new format version. The reader for the old version
-   stays, so old files keep loading.
+   stays, so old files keep loading. Version 2 added the dtype field and the finite-value rule;
+   version 1 files still load.
 5. Every declared length is checked against the bytes that remain, so a corrupt length cannot
    cause a huge allocation.
 6. Loading also checks each model's invariants (shapes, index ranges, parameter ranges). A file
@@ -83,17 +91,19 @@ Each committed golden file is a version 1 model that a test loads on every run:
 * `crates/tpt-ml-proven-clustering/tests/fixtures/kmeans_v1.tpml`
 * `crates/tpt-ml-proven-decomposition/tests/fixtures/pca_v1.tpml`
 
-If one of these tests fails after a change, the change has broken existing files. Bump the
-format version instead of editing the fixture.
+These are version 1 files, kept to prove that version 1 still loads. Version 2 is pinned by a
+header test in `persist.rs`. If one of these tests fails after a change, the change has broken
+existing files. Bump the format version instead of editing the fixture.
 
 ## Worked example: the header
 
-The header of any version 1 file starts with:
+The header of a version 2 file for an f64 ridge model starts with:
 
 ```text
 54 50 54 4d 4c 4d 44 4c   "TPTMLMDL"
-01 00 00 00               format version 1
+02 00 00 00               format version 2
 03 00 00 00               kind 3 (ridge)
+02 00 00 00               dtype 2 (f64)
 ```
 
 ## Scope
