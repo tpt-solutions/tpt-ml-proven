@@ -58,7 +58,8 @@ fn check(name: &str) {
         fx["n_iter"][0] as usize,
         "{name}: n_iter"
     );
-    assert_all_close(model.components().unwrap(), &fx["h"], &format!("{name}: H"));
+    let h = model.components().unwrap().clone().into_vec();
+    assert_all_close(&h, &fx["h"], &format!("{name}: H"));
 
     let w = Transformer::fit_transform(&mut model, DenseView::new(&fx["x"], rows, cols).unwrap())
         .unwrap();

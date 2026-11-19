@@ -24,14 +24,16 @@ pub struct Nmf<F: Float> {
     tol: f64,
     seed: u64,
     init: Option<(Vec<f64>, Vec<f64>)>,
-    fitted: Option<Fitted>,
+    fitted: Option<Fitted<F>>,
     marker: core::marker::PhantomData<F>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
-struct Fitted {
-    /// `H`, row-major `n_components × cols`.
+struct Fitted<F: Float> {
+    /// `H`, row-major `n_components × cols`, in the f64 the solver works in.
     components: Vec<f64>,
+    /// The same `H` in the model's float type, for `components()`.
+    factors: Dense<F>,
     /// `W` for the training data, row-major `rows × n_components`.
     w: Vec<f64>,
     cols: usize,
@@ -80,9 +82,9 @@ impl<F: Float> Nmf<F> {
         self
     }
 
-    /// Learned factors `H` (`n_components × n_features`, row-major), or `None` before `fit`.
-    pub fn components(&self) -> Option<&[f64]> {
-        self.fitted.as_ref().map(|f| f.components.as_slice())
+    /// Learned factors `H` (`n_components × n_features`), or `None` before `fit`.
+    pub fn components(&self) -> Option<&Dense<F>> {
+        self.fitted.as_ref().map(|f| &f.factors)
     }
 
     /// Multiplicative-update iterations used by the last fit, or `None` before `fit`.
@@ -271,8 +273,10 @@ impl<F: Float> UnsupervisedEstimator for Nmf<F> {
             reconstruction_error <= error_at_init * (1.0 + 1e-9),
             "nmf.error_not_increased"
         );
+        let factors = Dense::from_vec(h.iter().map(|v| F::from_f64(*v)).collect(), k, cols)?;
         self.fitted = Some(Fitted {
             components: h,
+            factors,
             w,
             cols,
             n_iter,

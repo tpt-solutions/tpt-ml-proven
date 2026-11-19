@@ -11,7 +11,7 @@
 //! Sign convention: as in [`crate::Pca`], the largest-magnitude entry of each component
 //! is positive.
 
-use tpt_ml_proven_core::error::Error;
+use tpt_ml_proven_core::error::{Error, ShapeError};
 use tpt_ml_proven_core::{
     ensures, requires, ArrayView, Dense, Float, Transformer, UnsupervisedEstimator,
 };
@@ -22,14 +22,18 @@ use crate::eigen::symmetric_eigen;
 #[derive(Debug, Clone, PartialEq)]
 pub struct TruncatedSvd<F: Float> {
     n_components: usize,
-    fitted: Option<Fitted>,
+    fitted: Option<Fitted<F>>,
     marker: core::marker::PhantomData<F>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
-struct Fitted {
-    components: Vec<Vec<f64>>,
+struct Fitted<F: Float> {
+    /// Right singular vectors, `n_components × n_features`.
+    components: Dense<F>,
     singular_values: Vec<f64>,
+    /// Population variance of each projected training column (divisor `n`), as in
+    /// scikit-learn's `TruncatedSVD.explained_variance_`.
+    explained_variance: Vec<F>,
     cols: usize,
 }
 
@@ -44,13 +48,51 @@ impl<F: Float> TruncatedSvd<F> {
     }
 
     /// Right singular vectors, one per row (`n_components x n_features`).
-    pub fn components(&self) -> Option<Vec<Vec<f64>>> {
-        self.fitted.as_ref().map(|f| f.components.clone())
+    pub fn components(&self) -> Option<&Dense<F>> {
+        self.fitted.as_ref().map(|f| &f.components)
     }
 
     /// Singular values in decreasing order.
     pub fn singular_values(&self) -> Option<&[f64]> {
         self.fitted.as_ref().map(|f| f.singular_values.as_slice())
+    }
+
+    /// Variance of each projected training column, `n_components` values.
+    pub fn explained_variance(&self) -> Option<&[F]> {
+        self.fitted
+            .as_ref()
+            .map(|f| f.explained_variance.as_slice())
+    }
+
+    /// Maps projections `Z` (`rows x n_components`) back to feature space, `Z·Vₖᵀ`.
+    /// This is exact when `n_components` equals the rank of the data, and otherwise the
+    /// best rank-`n_components` approximation.
+    pub fn inverse_transform<Y: ArrayView<Elem = F>>(&self, z: &Y) -> Result<Dense<F>, Error> {
+        let fitted = self.fitted.as_ref().ok_or(Error::NotFitted)?;
+        let k = fitted.components.rows();
+        let d = fitted.cols;
+        if z.cols() != k {
+            return Err(Error::Shape(ShapeError {
+                rows: z.rows(),
+                cols: z.cols(),
+                reason: "component count differs from the fitted model",
+            }));
+        }
+        if !z.all_finite() {
+            return Err(Error::NonFinite { what: "Z" });
+        }
+        let n = z.rows();
+        let mut out = Vec::with_capacity(n * d);
+        for r in 0..n {
+            for j in 0..d {
+                let mut acc = F::ZERO;
+                for c in 0..k {
+                    acc = acc + z.get(r, c) * fitted.components.get(c, j);
+                }
+                out.push(acc);
+            }
+        }
+        Ok(Dense::from_vec(out, n, d)?)
     }
 }
 
@@ -129,9 +171,25 @@ impl<F: Float> UnsupervisedEstimator for TruncatedSvd<F> {
             "svd.singular_values_sorted"
         );
         ensures!(k <= d, "svd.components_within_cols");
+
+        // Population variance of each projected column, from the training data.
+        let mut explained_variance = Vec::with_capacity(k);
+        for comp in &components {
+            let proj: Vec<f64> = (0..n)
+                .map(|r| (0..d).map(|c| x.get(r, c).to_f64() * comp[c]).sum::<f64>())
+                .collect();
+            let mean = proj.iter().sum::<f64>() / n as f64;
+            let var = proj.iter().map(|p| (p - mean) * (p - mean)).sum::<f64>() / n as f64;
+            explained_variance.push(F::from_f64(var));
+        }
+        let flat: Vec<F> = components
+            .iter()
+            .flat_map(|c| c.iter().map(|v| F::from_f64(*v)))
+            .collect();
         self.fitted = Some(Fitted {
-            components,
+            components: Dense::from_vec(flat, k, d)?,
             singular_values,
+            explained_variance,
             cols: d,
         });
         Ok(())
@@ -155,11 +213,13 @@ impl<F: Float> Transformer for TruncatedSvd<F> {
                 reason: "feature count differs from the fitted model",
             }));
         }
-        let k = fitted.components.len();
+        let k = fitted.components.rows();
         let mut out = Vec::with_capacity(x.rows() * k);
         for r in 0..x.rows() {
-            for comp in &fitted.components {
-                let s: f64 = (0..x.cols()).map(|c| x.get(r, c).to_f64() * comp[c]).sum();
+            for c in 0..k {
+                let s: f64 = (0..x.cols())
+                    .map(|j| x.get(r, j).to_f64() * fitted.components.get(c, j).to_f64())
+                    .sum();
                 out.push(F::from_f64(s));
             }
         }
@@ -195,6 +255,38 @@ mod tests {
         // Projection norms equal the singular value (one component captures everything).
         let norm: f64 = out.into_vec().iter().map(|v| v * v).sum::<f64>().sqrt();
         assert!((norm - sv).abs() < 1e-9);
+    }
+
+    #[test]
+    fn full_rank_inverse_transform_recovers_the_data() {
+        let data = [1.0_f64, 2.0, 3.0, 1.0, 0.5, 4.0];
+        let mut svd = TruncatedSvd::<f64>::new(2);
+        let z = svd
+            .fit_transform(DenseView::new(&data, 3, 2).unwrap())
+            .unwrap();
+        let back = svd.inverse_transform(&z.view()).unwrap();
+        for (a, b) in back.into_vec().iter().zip(&data) {
+            assert!((a - b).abs() < 1e-9);
+        }
+    }
+
+    #[test]
+    fn explained_variance_is_the_variance_of_the_projection() {
+        let data = [1.0_f64, 2.0, 3.0, 1.0, 0.5, 4.0, 2.0, 2.0];
+        let mut svd = TruncatedSvd::<f64>::new(2);
+        let z = svd
+            .fit_transform(DenseView::new(&data, 4, 2).unwrap())
+            .unwrap();
+        let ev = svd.explained_variance().unwrap();
+        for (c, &variance) in ev.iter().enumerate() {
+            let col: Vec<f64> = (0..4).map(|r| z.get(r, c)).collect();
+            let mean = col.iter().sum::<f64>() / 4.0;
+            let var = col.iter().map(|v| (v - mean) * (v - mean)).sum::<f64>() / 4.0;
+            assert!((variance - var).abs() < 1e-9);
+        }
+        // Variances are never negative. They need not be ordered, since the singular values
+        // rank the uncentred sums of squares, not these centred variances.
+        assert!(ev.iter().all(|v| *v >= 0.0));
     }
 
     #[test]

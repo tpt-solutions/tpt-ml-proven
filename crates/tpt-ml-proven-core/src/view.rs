@@ -265,6 +265,11 @@ impl<T: Float> Dense<T> {
     pub fn into_vec(self) -> Vec<T> {
         self.data
     }
+
+    /// The row-major buffer, borrowed.
+    pub fn as_slice(&self) -> &[T] {
+        &self.data
+    }
 }
 
 impl<T: Float> ArrayView for Dense<T> {

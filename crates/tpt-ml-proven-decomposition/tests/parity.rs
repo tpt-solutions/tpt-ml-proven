@@ -119,10 +119,10 @@ fn truncated_svd_matches_scikit_learn_arpack() {
     let theirs = floats(&fx, "components");
     for c in 0..k {
         let reference = &theirs[c * cols..(c + 1) * cols];
-        let dot: f64 = (0..cols).map(|j| ours[c][j] * reference[j]).sum();
+        let dot: f64 = (0..cols).map(|j| ours.get(c, j) * reference[j]).sum();
         let sign = if dot < 0.0 { -1.0 } else { 1.0 };
         for (j, &r) in reference.iter().enumerate() {
-            assert_close(ours[c][j], sign * r, &format!("component[{c}][{j}]"));
+            assert_close(ours.get(c, j), sign * r, &format!("component[{c}][{j}]"));
         }
     }
 }
