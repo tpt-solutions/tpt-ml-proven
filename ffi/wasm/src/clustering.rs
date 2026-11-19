@@ -9,7 +9,7 @@ use tpt_ml_proven_clustering::{Dbscan, Hdbscan, Init, KMeans};
 use tpt_ml_proven_core::{DenseView, Float, Predictor, Transformer, UnsupervisedEstimator};
 
 use crate::options::Options;
-use crate::{flatten, js_err, not_fitted, to_f32, view, view32};
+use crate::{flatten, js_err, not_fitted, peek_dtype, to_f32, view, view32};
 
 enum KState {
     F32(KMeans<f32>),
@@ -242,3 +242,89 @@ impl HdbscanModel {
 
 #[allow(dead_code)]
 fn _assert_dense_view_used(_: DenseView<'_, f64>) {}
+
+#[wasm_bindgen]
+impl KMeansModel {
+    /// Serialises the fitted model as model-file bytes, for storage and later `fromBytes`.
+    #[wasm_bindgen(js_name = toBytes)]
+    pub fn to_bytes(&self) -> Result<Vec<u8>, JsError> {
+        match self.fitted.as_ref().ok_or_else(not_fitted)? {
+            KState::F64(km) => km.to_bytes().map_err(js_err),
+            KState::F32(km) => km.to_bytes().map_err(js_err),
+        }
+    }
+
+    /// Loads a model written by `toBytes`. The hyper-parameters are read from the file.
+    #[wasm_bindgen(js_name = fromBytes)]
+    pub fn from_bytes(bytes: &[u8]) -> Result<KMeansModel, JsError> {
+        if peek_dtype(bytes)? == 1 {
+            let km = KMeans::<f32>::from_bytes(bytes).map_err(js_err)?;
+            Ok(KMeansModel {
+                n_clusters: km.n_clusters(),
+                max_iter: km.max_iter(),
+                tol: km.tol(),
+                init: km.init(),
+                seed: km.seed(),
+                fitted: Some(KState::F32(km)),
+            })
+        } else {
+            let km = KMeans::<f64>::from_bytes(bytes).map_err(js_err)?;
+            Ok(KMeansModel {
+                n_clusters: km.n_clusters(),
+                max_iter: km.max_iter(),
+                tol: km.tol(),
+                init: km.init(),
+                seed: km.seed(),
+                fitted: Some(KState::F64(km)),
+            })
+        }
+    }
+}
+
+#[wasm_bindgen]
+impl DbscanModel {
+    /// Serialises the fitted model as model-file bytes.
+    #[wasm_bindgen(js_name = toBytes)]
+    pub fn to_bytes(&self) -> Result<Vec<u8>, JsError> {
+        self.fitted
+            .as_ref()
+            .ok_or_else(not_fitted)?
+            .to_bytes()
+            .map_err(js_err)
+    }
+
+    /// Loads a model written by `toBytes`.
+    #[wasm_bindgen(js_name = fromBytes)]
+    pub fn from_bytes(bytes: &[u8]) -> Result<DbscanModel, JsError> {
+        let m = Dbscan::<f64>::from_bytes(bytes).map_err(js_err)?;
+        Ok(DbscanModel {
+            eps: m.eps(),
+            min_samples: m.min_samples(),
+            fitted: Some(m),
+        })
+    }
+}
+
+#[wasm_bindgen]
+impl HdbscanModel {
+    /// Serialises the fitted model as model-file bytes.
+    #[wasm_bindgen(js_name = toBytes)]
+    pub fn to_bytes(&self) -> Result<Vec<u8>, JsError> {
+        self.fitted
+            .as_ref()
+            .ok_or_else(not_fitted)?
+            .to_bytes()
+            .map_err(js_err)
+    }
+
+    /// Loads a model written by `toBytes`.
+    #[wasm_bindgen(js_name = fromBytes)]
+    pub fn from_bytes(bytes: &[u8]) -> Result<HdbscanModel, JsError> {
+        let m = Hdbscan::<f64>::from_bytes(bytes).map_err(js_err)?;
+        Ok(HdbscanModel {
+            min_cluster_size: m.min_cluster_size(),
+            min_samples: m.min_samples(),
+            fitted: Some(m),
+        })
+    }
+}

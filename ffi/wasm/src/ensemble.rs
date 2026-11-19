@@ -57,3 +57,27 @@ impl StumpForestModel {
         accuracy(y, &pred).map_err(js_err)
     }
 }
+
+#[wasm_bindgen]
+impl StumpForestModel {
+    /// Serialises the fitted model as model-file bytes.
+    #[wasm_bindgen(js_name = toBytes)]
+    pub fn to_bytes(&self) -> Result<Vec<u8>, JsError> {
+        self.fitted
+            .as_ref()
+            .ok_or_else(not_fitted)?
+            .to_bytes()
+            .map_err(js_err)
+    }
+
+    /// Loads a model written by `toBytes`.
+    #[wasm_bindgen(js_name = fromBytes)]
+    pub fn from_bytes(bytes: &[u8]) -> Result<StumpForestModel, JsError> {
+        let m = StumpForest::<f64>::from_bytes(bytes).map_err(js_err)?;
+        Ok(StumpForestModel {
+            n_estimators: m.n_estimators_setting(),
+            seed: m.seed(),
+            fitted: Some(m),
+        })
+    }
+}

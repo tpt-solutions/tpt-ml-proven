@@ -74,5 +74,17 @@ classifiers). The classifiers and the logistic model expose `classes`.
 
 ## Not yet in WebAssembly
 
-Model files (`toBytes`/`fromBytes`) are not exposed here. The Python package and the Rust crates
-have them. The `f32` path covers KMeans and PCA only.
+Every estimator and transformer has `toBytes()`, which returns the fitted model as a
+`Uint8Array` in the same model-file format the Python package and the Rust crates use, and a
+static `fromBytes(bytes)`, which returns a fitted model. Store the bytes wherever you like (a file,
+IndexedDB, a server) and load them later:
+
+```js
+const km = new m.KMeansModel({ nClusters: 2, seed: 1 });
+km.fit(X, 2);
+const bytes = km.toBytes();
+const again = m.KMeansModel.fromBytes(bytes);   // predict and transform work straight away
+```
+
+The hyper-parameters are restored from the file, so refitting a restored model uses the settings it
+was trained with. The `f32` path covers KMeans and PCA only.

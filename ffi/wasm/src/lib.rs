@@ -48,6 +48,28 @@ pub(crate) fn not_fitted() -> JsError {
     JsError::new("this model is not fitted yet; call fit first")
 }
 
+/// Dtype of a model file: 1 for f32, 2 for f64. Version 1 files are f64.
+pub(crate) fn peek_dtype(bytes: &[u8]) -> Result<u32, JsError> {
+    if bytes.len() < 20 || bytes[..8] != *b"TPTMLMDL" {
+        return Err(JsError::new("not a tpt-ml-proven model file"));
+    }
+    let version = u32::from_le_bytes(bytes[8..12].try_into().expect("4 bytes"));
+    if version < 2 {
+        return Ok(2);
+    }
+    Ok(u32::from_le_bytes(
+        bytes[16..20].try_into().expect("4 bytes"),
+    ))
+}
+
+/// Kind tag of a model file, which says which estimator wrote it.
+pub(crate) fn peek_kind(bytes: &[u8]) -> Result<u32, JsError> {
+    bytes
+        .get(12..16)
+        .map(|b| u32::from_le_bytes(b.try_into().expect("4 bytes")))
+        .ok_or_else(|| JsError::new("not a tpt-ml-proven model file"))
+}
+
 /// Number of rows in a flat row-major array of `cols` features per row.
 pub(crate) fn check_shape(len: usize, cols: usize) -> Result<usize, JsError> {
     if cols == 0 {

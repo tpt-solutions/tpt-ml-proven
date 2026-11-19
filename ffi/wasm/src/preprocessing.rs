@@ -36,6 +36,24 @@ macro_rules! transformer_class {
                 Ok($name { fitted: None })
             }
 
+            /// Serialises the fitted transformer as model-file bytes.
+            #[wasm_bindgen(js_name = toBytes)]
+            pub fn to_bytes(&self) -> Result<Vec<u8>, JsError> {
+                self.fitted
+                    .as_ref()
+                    .ok_or_else(not_fitted)?
+                    .to_bytes()
+                    .map_err(js_err)
+            }
+
+            /// Loads a model written by `toBytes`.
+            #[wasm_bindgen(js_name = fromBytes)]
+            pub fn from_bytes(bytes: &[u8]) -> Result<$name, JsError> {
+                Ok($name {
+                    fitted: Some($rust::<f64>::from_bytes(bytes).map_err(js_err)?),
+                })
+            }
+
             /// Learns the transformation from a flat row-major matrix.
             pub fn fit(&mut self, data: &[f64], cols: usize) -> Result<(), JsError> {
                 let mut m = $rust::<f64>::new();
@@ -129,9 +147,11 @@ impl SimpleImputerModel {
             "median" => ImputeStrategy::Median,
             "most_frequent" => ImputeStrategy::MostFrequent,
             "constant" => ImputeStrategy::Constant(fill),
-            other => return Err(JsError::new(&format!(
+            other => {
+                return Err(JsError::new(&format!(
                 "strategy must be 'mean', 'median', 'most_frequent' or 'constant', not {other:?}"
-            ))),
+            )))
+            }
         };
         Ok(SimpleImputerModel {
             strategy,
@@ -171,5 +191,28 @@ impl SimpleImputerModel {
             .ok_or_else(not_fitted)?
             .statistics()
             .map_or(0, <[f64]>::len))
+    }
+}
+
+#[wasm_bindgen]
+impl SimpleImputerModel {
+    /// Serialises the fitted imputer as model-file bytes.
+    #[wasm_bindgen(js_name = toBytes)]
+    pub fn to_bytes(&self) -> Result<Vec<u8>, JsError> {
+        self.fitted
+            .as_ref()
+            .ok_or_else(not_fitted)?
+            .to_bytes()
+            .map_err(js_err)
+    }
+
+    /// Loads a model written by `toBytes`. The strategy is read from the file.
+    #[wasm_bindgen(js_name = fromBytes)]
+    pub fn from_bytes(bytes: &[u8]) -> Result<SimpleImputerModel, JsError> {
+        let m = SimpleImputer::<f64>::from_bytes(bytes).map_err(js_err)?;
+        Ok(SimpleImputerModel {
+            strategy: m.strategy(),
+            fitted: Some(m),
+        })
     }
 }

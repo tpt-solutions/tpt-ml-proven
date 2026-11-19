@@ -6,12 +6,16 @@
 use wasm_bindgen::prelude::*;
 
 use tpt_ml_proven_core::metrics::{accuracy, r2};
+use tpt_ml_proven_core::persist::kind;
 use tpt_ml_proven_core::ArrayView;
 use tpt_ml_proven_core::{Predictor, SupervisedEstimator};
-use tpt_ml_proven_linear::{ElasticNet, Lasso, LogisticRegression, MulticlassLogistic, Ridge};
+use tpt_ml_proven_linear::{
+    labelled_binary_from_bytes, labelled_binary_to_bytes, ElasticNet, Lasso, LogisticRegression,
+    MulticlassLogistic, Ridge,
+};
 
 use crate::options::Options;
-use crate::{check_targets, js_err, not_fitted, view};
+use crate::{check_targets, js_err, not_fitted, peek_kind, view};
 
 /// Ridge regression (closed form).
 ///
@@ -329,6 +333,121 @@ impl LogisticRegressionModel {
         match self.fitted.as_ref().ok_or_else(not_fitted)? {
             LogitState::Binary { classes, .. } => Ok(classes.to_vec()),
             LogitState::Multi(model) => Ok(model.classes().unwrap_or(&[]).to_vec()),
+        }
+    }
+}
+
+#[wasm_bindgen]
+impl RidgeModel {
+    /// Serialises the fitted model as model-file bytes.
+    #[wasm_bindgen(js_name = toBytes)]
+    pub fn to_bytes(&self) -> Result<Vec<u8>, JsError> {
+        self.fitted
+            .as_ref()
+            .ok_or_else(not_fitted)?
+            .to_bytes()
+            .map_err(js_err)
+    }
+
+    /// Loads a model written by `toBytes`.
+    #[wasm_bindgen(js_name = fromBytes)]
+    pub fn from_bytes(bytes: &[u8]) -> Result<RidgeModel, JsError> {
+        let m = Ridge::<f64>::from_bytes(bytes).map_err(js_err)?;
+        Ok(RidgeModel {
+            alpha: m.alpha(),
+            fitted: Some(m),
+        })
+    }
+}
+
+#[wasm_bindgen]
+impl LassoModel {
+    /// Serialises the fitted model as model-file bytes.
+    #[wasm_bindgen(js_name = toBytes)]
+    pub fn to_bytes(&self) -> Result<Vec<u8>, JsError> {
+        self.fitted
+            .as_ref()
+            .ok_or_else(not_fitted)?
+            .to_bytes()
+            .map_err(js_err)
+    }
+
+    /// Loads a model written by `toBytes`.
+    #[wasm_bindgen(js_name = fromBytes)]
+    pub fn from_bytes(bytes: &[u8]) -> Result<LassoModel, JsError> {
+        let m = Lasso::<f64>::from_bytes(bytes).map_err(js_err)?;
+        Ok(LassoModel {
+            alpha: m.alpha(),
+            max_iter: m.max_iter(),
+            tol: m.tol(),
+            fitted: Some(m),
+        })
+    }
+}
+
+#[wasm_bindgen]
+impl ElasticNetModel {
+    /// Serialises the fitted model as model-file bytes.
+    #[wasm_bindgen(js_name = toBytes)]
+    pub fn to_bytes(&self) -> Result<Vec<u8>, JsError> {
+        self.fitted
+            .as_ref()
+            .ok_or_else(not_fitted)?
+            .to_bytes()
+            .map_err(js_err)
+    }
+
+    /// Loads a model written by `toBytes`.
+    #[wasm_bindgen(js_name = fromBytes)]
+    pub fn from_bytes(bytes: &[u8]) -> Result<ElasticNetModel, JsError> {
+        let m = ElasticNet::<f64>::from_bytes(bytes).map_err(js_err)?;
+        Ok(ElasticNetModel {
+            alpha: m.alpha(),
+            l1_ratio: m.l1_ratio(),
+            max_iter: m.max_iter(),
+            tol: m.tol(),
+            fitted: Some(m),
+        })
+    }
+}
+
+#[wasm_bindgen]
+impl LogisticRegressionModel {
+    /// Serialises the fitted model as model-file bytes. Two-class and multi-class models both
+    /// write a model file that `fromBytes` reads back.
+    #[wasm_bindgen(js_name = toBytes)]
+    pub fn to_bytes(&self) -> Result<Vec<u8>, JsError> {
+        match self.fitted.as_ref().ok_or_else(not_fitted)? {
+            LogitState::Binary { model, classes } => {
+                labelled_binary_to_bytes(model, *classes).map_err(js_err)
+            }
+            LogitState::Multi(model) => model.to_bytes().map_err(js_err),
+        }
+    }
+
+    /// Loads a model written by `toBytes`, choosing the two-class or multi-class form from the file.
+    #[wasm_bindgen(js_name = fromBytes)]
+    pub fn from_bytes(bytes: &[u8]) -> Result<LogisticRegressionModel, JsError> {
+        match peek_kind(bytes)? {
+            kind::LOGISTIC_LABELLED => {
+                let (model, classes) = labelled_binary_from_bytes(bytes).map_err(js_err)?;
+                Ok(LogisticRegressionModel {
+                    c: model.c(),
+                    max_iter: model.max_iter(),
+                    tol: model.tol(),
+                    fitted: Some(LogitState::Binary { model, classes }),
+                })
+            }
+            kind::MULTICLASS_LOGISTIC => {
+                let model = MulticlassLogistic::<f64>::from_bytes(bytes).map_err(js_err)?;
+                Ok(LogisticRegressionModel {
+                    c: model.c(),
+                    max_iter: model.max_iter(),
+                    tol: model.tol(),
+                    fitted: Some(LogitState::Multi(model)),
+                })
+            }
+            _ => Err(JsError::new("not a logistic regression model file")),
         }
     }
 }

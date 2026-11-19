@@ -326,3 +326,136 @@ impl RandomForestClassifierModel {
             .to_vec())
     }
 }
+
+#[wasm_bindgen]
+impl DecisionTreeRegressorModel {
+    /// Serialises the fitted tree as model-file bytes.
+    #[wasm_bindgen(js_name = toBytes)]
+    pub fn to_bytes(&self) -> Result<Vec<u8>, JsError> {
+        self.fitted
+            .as_ref()
+            .ok_or_else(not_fitted)?
+            .to_bytes()
+            .map_err(js_err)
+    }
+
+    /// Loads a model written by `toBytes`.
+    #[wasm_bindgen(js_name = fromBytes)]
+    pub fn from_bytes(bytes: &[u8]) -> Result<DecisionTreeRegressorModel, JsError> {
+        let m = DecisionTreeRegressor::from_bytes(bytes).map_err(js_err)?;
+        Ok(DecisionTreeRegressorModel {
+            max_depth: m.max_depth(),
+            min_samples_leaf: m.min_samples_leaf(),
+            fitted: Some(m),
+        })
+    }
+}
+
+#[wasm_bindgen]
+impl DecisionTreeClassifierModel {
+    /// Serialises the fitted tree as model-file bytes.
+    #[wasm_bindgen(js_name = toBytes)]
+    pub fn to_bytes(&self) -> Result<Vec<u8>, JsError> {
+        self.fitted
+            .as_ref()
+            .ok_or_else(not_fitted)?
+            .to_bytes()
+            .map_err(js_err)
+    }
+
+    /// Loads a model written by `toBytes`.
+    #[wasm_bindgen(js_name = fromBytes)]
+    pub fn from_bytes(bytes: &[u8]) -> Result<DecisionTreeClassifierModel, JsError> {
+        let m = DecisionTreeClassifier::from_bytes(bytes).map_err(js_err)?;
+        Ok(DecisionTreeClassifierModel {
+            max_depth: m.max_depth(),
+            min_samples_leaf: m.min_samples_leaf(),
+            criterion: m.criterion(),
+            fitted: Some(m),
+        })
+    }
+}
+
+#[wasm_bindgen]
+impl GradientBoostingRegressorModel {
+    /// Serialises the fitted ensemble as model-file bytes.
+    #[wasm_bindgen(js_name = toBytes)]
+    pub fn to_bytes(&self) -> Result<Vec<u8>, JsError> {
+        self.fitted
+            .as_ref()
+            .ok_or_else(not_fitted)?
+            .to_bytes()
+            .map_err(js_err)
+    }
+
+    /// Loads a model written by `toBytes`.
+    #[wasm_bindgen(js_name = fromBytes)]
+    pub fn from_bytes(bytes: &[u8]) -> Result<GradientBoostingRegressorModel, JsError> {
+        let m = GradientBoostingRegressor::from_bytes(bytes).map_err(js_err)?;
+        Ok(GradientBoostingRegressorModel {
+            n_estimators: m.n_estimators(),
+            learning_rate: m.learning_rate(),
+            max_depth: m.max_depth(),
+            min_samples_leaf: m.min_samples_leaf(),
+            subsample: m.subsample(),
+            max_features: m.max_features(),
+            seed: m.seed(),
+            fitted: Some(m),
+        })
+    }
+}
+
+#[wasm_bindgen]
+impl RandomForestRegressorModel {
+    /// Serialises the fitted forest as model-file bytes.
+    #[wasm_bindgen(js_name = toBytes)]
+    pub fn to_bytes(&self) -> Result<Vec<u8>, JsError> {
+        self.fitted
+            .as_ref()
+            .ok_or_else(not_fitted)?
+            .to_bytes()
+            .map_err(js_err)
+    }
+
+    /// Loads a model written by `toBytes`.
+    #[wasm_bindgen(js_name = fromBytes)]
+    pub fn from_bytes(bytes: &[u8]) -> Result<RandomForestRegressorModel, JsError> {
+        let m = RandomForestRegressor::from_bytes(bytes).map_err(js_err)?;
+        Ok(RandomForestRegressorModel {
+            n_estimators: m.n_estimators_setting(),
+            max_depth: m.max_depth(),
+            min_samples_leaf: m.min_samples_leaf(),
+            max_features: m.max_features(),
+            seed: m.seed(),
+            fitted: Some(m),
+        })
+    }
+}
+
+#[wasm_bindgen]
+impl RandomForestClassifierModel {
+    /// Serialises the fitted forest as model-file bytes.
+    #[wasm_bindgen(js_name = toBytes)]
+    pub fn to_bytes(&self) -> Result<Vec<u8>, JsError> {
+        self.fitted
+            .as_ref()
+            .ok_or_else(not_fitted)?
+            .to_bytes()
+            .map_err(js_err)
+    }
+
+    /// Loads a model written by `toBytes`.
+    #[wasm_bindgen(js_name = fromBytes)]
+    pub fn from_bytes(bytes: &[u8]) -> Result<RandomForestClassifierModel, JsError> {
+        let m = RandomForestClassifier::from_bytes(bytes).map_err(js_err)?;
+        Ok(RandomForestClassifierModel {
+            n_estimators: m.n_estimators_setting(),
+            max_depth: m.max_depth(),
+            min_samples_leaf: m.min_samples_leaf(),
+            criterion: m.criterion(),
+            max_features: m.max_features(),
+            seed: m.seed(),
+            fitted: Some(m),
+        })
+    }
+}

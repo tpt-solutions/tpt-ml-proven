@@ -9,7 +9,7 @@ use tpt_ml_proven_core::{DenseView, Transformer, UnsupervisedEstimator};
 use tpt_ml_proven_decomposition::{Nmf, Pca, TruncatedSvd};
 
 use crate::options::Options;
-use crate::{check_shape, flatten, js_err, not_fitted, to_f32, view, view32};
+use crate::{check_shape, flatten, js_err, not_fitted, peek_dtype, to_f32, view, view32};
 
 enum PState {
     F32(Pca<f32>),
@@ -268,5 +268,84 @@ impl NmfModel {
             .ok_or_else(not_fitted)?
             .n_iter()
             .ok_or_else(not_fitted)
+    }
+}
+
+#[wasm_bindgen]
+impl PcaModel {
+    /// Serialises the fitted model as model-file bytes.
+    #[wasm_bindgen(js_name = toBytes)]
+    pub fn to_bytes(&self) -> Result<Vec<u8>, JsError> {
+        match self.fitted.as_ref().ok_or_else(not_fitted)? {
+            PState::F64(p) => p.to_bytes().map_err(js_err),
+            PState::F32(p) => p.to_bytes().map_err(js_err),
+        }
+    }
+
+    /// Loads a model written by `toBytes`. The hyper-parameters are read from the file.
+    #[wasm_bindgen(js_name = fromBytes)]
+    pub fn from_bytes(bytes: &[u8]) -> Result<PcaModel, JsError> {
+        if peek_dtype(bytes)? == 1 {
+            let p = Pca::<f32>::from_bytes(bytes).map_err(js_err)?;
+            Ok(PcaModel {
+                n_components: p.n_components(),
+                fitted: Some(PState::F32(p)),
+            })
+        } else {
+            let p = Pca::<f64>::from_bytes(bytes).map_err(js_err)?;
+            Ok(PcaModel {
+                n_components: p.n_components(),
+                fitted: Some(PState::F64(p)),
+            })
+        }
+    }
+}
+
+#[wasm_bindgen]
+impl TruncatedSvdModel {
+    /// Serialises the fitted model as model-file bytes.
+    #[wasm_bindgen(js_name = toBytes)]
+    pub fn to_bytes(&self) -> Result<Vec<u8>, JsError> {
+        self.fitted
+            .as_ref()
+            .ok_or_else(not_fitted)?
+            .to_bytes()
+            .map_err(js_err)
+    }
+
+    /// Loads a model written by `toBytes`.
+    #[wasm_bindgen(js_name = fromBytes)]
+    pub fn from_bytes(bytes: &[u8]) -> Result<TruncatedSvdModel, JsError> {
+        let m = TruncatedSvd::<f64>::from_bytes(bytes).map_err(js_err)?;
+        Ok(TruncatedSvdModel {
+            n_components: m.n_components(),
+            fitted: Some(m),
+        })
+    }
+}
+
+#[wasm_bindgen]
+impl NmfModel {
+    /// Serialises the fitted model as model-file bytes.
+    #[wasm_bindgen(js_name = toBytes)]
+    pub fn to_bytes(&self) -> Result<Vec<u8>, JsError> {
+        self.fitted
+            .as_ref()
+            .ok_or_else(not_fitted)?
+            .to_bytes()
+            .map_err(js_err)
+    }
+
+    /// Loads a model written by `toBytes`.
+    #[wasm_bindgen(js_name = fromBytes)]
+    pub fn from_bytes(bytes: &[u8]) -> Result<NmfModel, JsError> {
+        let m = Nmf::<f64>::from_bytes(bytes).map_err(js_err)?;
+        Ok(NmfModel {
+            n_components: m.n_components(),
+            max_iter: m.max_iter(),
+            tol: m.tol(),
+            seed: m.seed(),
+            fitted: Some(m),
+        })
     }
 }
