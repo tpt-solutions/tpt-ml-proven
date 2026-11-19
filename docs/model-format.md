@@ -1,0 +1,102 @@
+# Model file format, version 1
+
+This is the on-disk format for fitted models. It is implemented in
+`crates/tpt-ml-proven-core/src/persist.rs`, and this document is the reference for it.
+Other implementations, in other languages, should follow this page.
+
+## Why our own format
+
+The roadmap first planned serde with bincode behind a feature flag. We use our own format
+instead, for three reasons:
+
+* **Stability.** Field order and encoding are fixed here, in writing, and checked by golden
+  files. A serde derive follows the struct layout, so an ordinary refactor could change the
+  bytes without anyone noticing.
+* **No dependencies.** The core crate is `no_std` + `alloc` with no dependencies, and this
+  format keeps it that way. Bincode would have added one.
+* **Other languages.** The format is simple enough to read from Go, Python or JavaScript
+  without a library.
+
+## Layout
+
+All integers and floats are little-endian.
+
+| Offset | Size | Field |
+| --- | --- | --- |
+| 0 | 8 | Magic, the ASCII bytes `TPTMLMDL` |
+| 8 | 4 | Format version, `u32`. Version 1 is `1` |
+| 12 | 4 | Model kind, `u32` (table below) |
+| 16 | … | Payload: the model's fields, in the order the model writes them |
+| end − 8 | 8 | Checksum, `u64`: FNV-1a (64-bit) over every byte before it |
+
+### Field encodings
+
+| Type | Encoding |
+| --- | --- |
+| count, index (`usize`) | `u64` |
+| 64-bit integer (`u64`, e.g. a seed) | `u64` |
+| value (`f64`) | IEEE 754 binary64 |
+| flag (`bool`) | one byte: `0` or `1`. Any other value is an error |
+| slice of values | `u64` length, then that many values |
+| slice of indices | `u64` length, then that many `u64` |
+
+`f32` models are widened to `f64` on write and rounded back on read.
+
+### Model kinds
+
+| Kind | Value | Model |
+| --- | --- | --- |
+| `KMEANS` | 1 | `KMeans` |
+| `PCA` | 2 | `Pca` |
+| `RIDGE` | 3 | `Ridge` |
+| `LASSO` | 4 | `Lasso` |
+| `ELASTIC_NET` | 5 | `ElasticNet` |
+| `LOGISTIC` | 6 | `LogisticRegression` (binary) |
+| `MULTICLASS_LOGISTIC` | 7 | `MulticlassLogistic` |
+| `DECISION_TREE` | 8 | `DecisionTreeRegressor` |
+| `GRADIENT_BOOSTING` | 9 | `GradientBoostingRegressor` |
+
+A model's payload starts with its parameters, then a flag for whether it is fitted, then the
+fitted state. A loaded model can be refitted with the same settings.
+
+## Compatibility rules
+
+1. A reader accepts any version from 1 up to the newest it knows. A file with a newer version
+   is refused with an error. It is never read on a guess.
+2. The kind must match the model being loaded. A ridge file cannot load as a lasso.
+3. Within one version, fields are never reordered, removed or re-typed.
+4. A change to a model's fields needs a new format version. The reader for the old version
+   stays, so old files keep loading.
+5. Every declared length is checked against the bytes that remain, so a corrupt length cannot
+   cause a huge allocation.
+6. Loading also checks each model's invariants (shapes, index ranges, parameter ranges). A file
+   that passes the checksum but is inconsistent is refused.
+
+The checksum detects truncation and corruption. It is not a signature. Anyone can change a
+file and recompute the checksum, so only load model files from sources you trust.
+
+## Golden files
+
+Each committed golden file is a version 1 model that a test loads on every run:
+
+* `crates/tpt-ml-proven-linear/tests/fixtures/ridge_v1.tpml`
+* `crates/tpt-ml-proven-clustering/tests/fixtures/kmeans_v1.tpml`
+* `crates/tpt-ml-proven-decomposition/tests/fixtures/pca_v1.tpml`
+
+If one of these tests fails after a change, the change has broken existing files. Bump the
+format version instead of editing the fixture.
+
+## Worked example: the header
+
+The header of any version 1 file starts with:
+
+```text
+54 50 54 4d 4c 4d 44 4c   "TPTMLMDL"
+01 00 00 00               format version 1
+03 00 00 00               kind 3 (ridge)
+```
+
+## Scope
+
+Rust has the reader and the writer. The Python, WebAssembly, C and Go bindings do not yet
+expose save and load. The format is ready for them, and they will use these same bytes.

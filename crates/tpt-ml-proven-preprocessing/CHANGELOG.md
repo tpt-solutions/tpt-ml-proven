@@ -7,7 +7,7 @@ All notable changes to `tpt-ml-proven-preprocessing` are recorded here. The form
 
 ### Added
 
-- `StandardScaler`, `MinMaxScaler` and `RobustScaler`, with `inverse_transform`.
+- `StandardScaler`, `MinMaxScaler` and `RobustScaler`, with `inverse_transform`. Parity tests
+  (1e-9) against scikit-learn on a committed fixture (`scalers_skewed`).
 - `OneHotEncoder` and `OrdinalEncoder`. Unknown categories are an error.
 - `SimpleImputer` with mean, median, most-frequent and constant strategies.
-- Parity tests (1e-9) for the three scalers against scikit-learn on a committed fixture.

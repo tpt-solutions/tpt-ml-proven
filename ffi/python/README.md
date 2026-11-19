@@ -38,4 +38,8 @@ labels = DBSCAN(eps=0.5, min_samples=5).fit(x).labels_
 proba = LogisticRegression(C=1.0).fit(x, y).predict_proba(x)
 ```
 
-The Phase 8 estimators are not yet exposed through the WebAssembly or C bindings.
+
+Not yet exposed in Python: the scalers, encoders and imputers, the tree models
+(`DecisionTreeRegressor`, `GradientBoostingRegressor`), and model files (save and load).
+The Rust crates have all of these; the model-file format is in
+[docs/model-format.md](../../docs/model-format.md).

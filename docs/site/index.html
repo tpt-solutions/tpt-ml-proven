@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>tpt-ml-proven</title>
+<style>
+  :root { color-scheme: light dark; --fg: #1d1d1f; --bg: #ffffff; --muted: #6e6e73; --accent: #0b6e4f; }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --fg: #f5f5f7; --bg: #161618; --muted: #a1a1a6; --accent: #53c79f; } }
+  body { margin: 0; font-family: system-ui, sans-serif; color: var(--fg); background: var(--bg); line-height: 1.55; }
+  main { max-width: 52rem; margin: 0 auto; padding: 2.5rem 1rem; }
+  h1 { margin-top: 0; }
+  a { color: var(--accent); }
+  .muted { color: var(--muted); }
+  ul { padding-left: 1.2rem; }
+  code { font-family: ui-monospace, monospace; font-size: 0.95em; }
+</style>
+</head>
+<body>
+<main>
+  <h1>tpt-ml-proven</h1>
+  <p>Classical machine learning in Rust, with contracts on the algorithms and checks that tie
+  each contract to the code. Each estimator is verified against scikit-learn on committed
+  fixtures.</p>
+
+  <h2>Documentation</h2>
+  <ul>
+    <li><a href="https://github.com/tpt-solutions/tpt-ml-proven/blob/master/README.md">Overview and workspace</a></li>
+    <li><a href="https://github.com/tpt-solutions/tpt-ml-proven/blob/master/docs/usage.md">Usage guide, per binding</a></li>
+    <li><a href="https://github.com/tpt-solutions/tpt-ml-proven/blob/master/docs/model-format.md">Model file format, version 1</a></li>
+    <li><a href="https://github.com/tpt-solutions/tpt-ml-proven/blob/master/docs/contracts/README.md">Contracts and the verifier</a></li>
+    <li><a href="https://github.com/tpt-solutions/tpt-ml-proven/blob/master/docs/DESIGN.md">Design specification</a></li>
+    <li><a href="https://github.com/tpt-solutions/tpt-ml-proven/blob/master/docs/benchmarks.md">Benchmarks against scikit-learn</a></li>
+    <li><a href="https://github.com/tpt-solutions/tpt-ml-proven/blob/master/docs/parity.md">Parity with scikit-learn</a></li>
+  </ul>
+
+  <h2>Bindings</h2>
+  <ul>
+    <li>Python (PyO3, abi3): <code>ffi/python</code></li>
+    <li>WebAssembly (wasm-bindgen): <code>ffi/wasm</code></li>
+    <li>C ABI: <code>ffi/c</code></li>
+    <li>Go (cgo over the C ABI): <code>ffi/go</code></li>
+  </ul>
+
+  <p class="muted">This is a static page, written by hand. It is not generated from the Markdown
+  files, and it has no build step.</p>
+</main>
+</body>
+</html>

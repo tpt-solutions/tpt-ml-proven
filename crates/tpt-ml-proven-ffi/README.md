@@ -1,21 +1,26 @@
 # tpt-ml-proven-ffi
 
-FFI surface for [tpt-ml-proven](https://github.com/tpt-solutions/tpt-ml-proven).
+The foreign-function surface for [tpt-ml-proven](https://github.com/tpt-solutions/tpt-ml-proven).
 
-> Status: placeholder. The crate's `lib.rs` is empty until the FFI phase. The bindings
-> themselves live in the directories below.
+> Status: the bindings live in `ffi/`, as separate packages. This crate is a workspace member
+> with no code of its own, kept so the workspace layout matches the design.
 
 ## Where the bindings are
 
-| Directory | Binding | Notes |
+| Directory | Binding | Estimators |
 | --- | --- | --- |
-| [`ffi/python`](../../ffi/python/README.md) | Python (PyO3, maturin) | `abi3` wheels for Python 3.9 and later. `KMeans` and `PCA`. |
-| [`ffi/wasm`](../../ffi/wasm/README.md) | WebAssembly (wasm-bindgen) | `KMeansModel` and `PcaModel`. |
-| [`ffi/c`](../../ffi/c) | C ABI (cbindgen) | Generated header in `ffi/c/include/`, for the planned Go binding. |
-| [`ffi/go`](../../ffi/go/README.md) | Go (cgo) | Placeholder. |
+| [`ffi/python`](../../ffi/python/README.md) | Python (PyO3, abi3 wheels) | KMeans, PCA, and the Phase 8 estimators |
+| [`ffi/wasm`](../../ffi/wasm/README.md) | WebAssembly (wasm-bindgen) | KMeans, PCA, and the Phase 8 estimators |
+| [`ffi/c`](../../ffi/c) | C ABI (cbindgen header in `ffi/c/include/`) | KMeans, PCA, and all the Phase 8 estimators |
+| [`ffi/go`](../../ffi/go/README.md) | Go (cgo over the C ABI) | KMeans and PCA |
 
-The bindings are separate packages, not workspace members. Build them from their own
-directories, as described in each README.
+None of the bindings yet expose the model files (`to_bytes` and `from_bytes`), nor the
+gradient-boosting and decision-tree models in `tpt-ml-proven-trees`. Their format is in
+[docs/model-format.md](../../docs/model-format.md).
+
+The bindings are separate packages, not members of this workspace, so the Python and
+WebAssembly toolchains stay out of the library builds. Build each from its own directory, as
+its README describes.
 
 ## Changelog
 

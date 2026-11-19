@@ -21,6 +21,9 @@ workspace builds on it.
   to the clauses in `docs/contracts/`.
 - **Toy estimators** in `toy`, `ColumnCenterer` and `MeanRegressor`, that exercise the
   traits end to end.
+- **Model files**: the version 1 on-disk format in `persist`, with a magic header, a format
+  version, a model kind, and an FNV-1a checksum. The format is specified in
+  [docs/model-format.md](../../docs/model-format.md).
 
 ## Features
 

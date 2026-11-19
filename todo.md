@@ -106,9 +106,9 @@ Dependency rule: runtime deps must be MIT, MIT/Apache-2.0 dual, BSD, ISC, Zlib, 
 **Done when:** KMeans and PCA run from Python, Go and WASM in CI on all three OSes.
 
 ## Phase 7 — v0.1 release
-- [ ] README with one-paragraph verification story
+- [x] README with one-paragraph verification story
 - [x] API docs (rustdoc, builds warning-free with `-D warnings`), usage guide (`docs/usage.md`), contract docs (`docs/contracts/README.md`)
-- [ ] CHANGELOG
+- [x] CHANGELOG (root and per crate, updated for Phases 8 to 10)
 - [ ] Success-criteria sign-off (spec §10):
   - [ ] KMeans and PCA match scikit-learn vectors within 1e-9
   - [ ] All `docs/contracts/` solver-verified in CI
@@ -149,16 +149,16 @@ Each item gets: crate code, `.tptc` contract, scikit-learn parity fixtures, FFI 
 ### Ensemble
 - [x] Stump forests (`tpt-ml-proven-ensemble`) — bagged depth-one classification trees, majority vote. No scikit-learn reference, so tested by properties
 
-- [ ] Update README/docs and release as v0.x increments — per-crate CHANGELOGs updated for linear and preprocessing; root README and CHANGELOG not yet updated for these
+- [x] Update README/docs and release as v0.x increments — every crate README and CHANGELOG, and the root README and CHANGELOG, are updated for these. Releasing is still open (Phase 7)
 
 ## Phase 9 — v0.2
-- [ ] Design stable on-disk model format (replace interim bincode/serde)
-- [ ] Interim: serde/bincode support for models behind a feature flag (v0.1.x)
-- [ ] Format versioning and backward-compatibility tests
-- [ ] Go vanity import path `tptsolutions.co.nz/mlproven` (go-import meta tags, module path migration)
-- [ ] Documentation site
+- [x] Design stable on-disk model format (replace interim bincode/serde). Specified in `docs/model-format.md`, implemented in `tpt-ml-proven-core::persist`. Chose our own dependency-free format over serde/bincode: see the reasons in the spec
+- [x] Interim: serde/bincode support for models behind a feature flag (v0.1.x). Superseded: not implemented, because the dependency-free format covers it. Recorded in `docs/model-format.md`
+- [x] Format versioning and backward-compatibility tests. Golden version 1 files for Ridge, KMeans and PCA are committed and loaded on every test run. Newer versions are refused
+- [ ] Go vanity import path `tptsolutions.co.nz/mlproven` (go-import meta tags, module path migration). Meta-tag page written in `docs/site/go/mlproven/`, but not live. The `go.mod` migration is a breaking change, and waits for the domain to serve the page
+- [x] Documentation site: a static landing page in `docs/site/`, with links to the docs. It is hand-written, with no generator
 
-## Phase 10 — Future / out of scope for now
-- [ ] `tpt-ml-proven-trees` crate: gradient boosting / random forests with structural-invariant verification
+## Phase 10 — Future work
+- [x] `tpt-ml-proven-trees` crate: CART regression and gradient boosting, with structural invariants as contracts (`decision-tree.tptc`, `gradient-boosting.tptc`) and scikit-learn parity. Random forests, classification trees and subsampling are not yet implemented
 - [ ] GPU backends (after tpt-gpu is stable)
 - [ ] npm publishing for the WASM package (optional)

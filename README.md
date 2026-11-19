@@ -1,40 +1,81 @@
 # tpt-ml-proven
 
-Classical machine learning in Rust with **proven correctness**: core algorithms carry
-`requires` / `ensures` contracts checked by a self-contained QF_LRA solver.
+Classical machine learning in Rust with **proven correctness**: the algorithms carry
+`requires` / `ensures` contracts, checked by a self-contained QF_LRA solver where the clauses
+are linear and by runtime checks everywhere else.
 
-> Status: pre-release (v0.1 in progress). KMeans and PCA are implemented, verified
-> against scikit-learn, and available from Rust, Python and WebAssembly. The Phase 8
-> algorithms (DBSCAN, HDBSCAN, TruncatedSVD, NMF, the linear models and a stump forest) are in
-> Rust with contracts and are exposed through the Python and WebAssembly bindings. The C ABI
-> covers all of them. The preprocessing transformers are not yet exposed in any
-> binding. The Go binding is still to come.
+> Status: pre-release (v0.1 in progress). Most of the planned algorithms are implemented and
+> checked against scikit-learn on committed fixtures. The tree models, the model file format
+> and the bindings are in place. Release steps (publishing, tagging, the Go import path) are
+> not done.
+
+## Algorithms
+
+| Crate | Estimators |
+| --- | --- |
+| [`tpt-ml-proven-clustering`](crates/tpt-ml-proven-clustering/README.md) | KMeans, DBSCAN, HDBSCAN |
+| [`tpt-ml-proven-decomposition`](crates/tpt-ml-proven-decomposition/README.md) | PCA, TruncatedSVD, NMF |
+| [`tpt-ml-proven-linear`](crates/tpt-ml-proven-linear/README.md) | Ridge, Lasso, ElasticNet, logistic regression (binary and multinomial) |
+| [`tpt-ml-proven-preprocessing`](crates/tpt-ml-proven-preprocessing/README.md) | StandardScaler, MinMaxScaler, RobustScaler, OneHotEncoder, OrdinalEncoder, SimpleImputer |
+| [`tpt-ml-proven-ensemble`](crates/tpt-ml-proven-ensemble/README.md) | StumpForest |
+| [`tpt-ml-proven-trees`](crates/tpt-ml-proven-trees/README.md) | DecisionTreeRegressor, GradientBoostingRegressor |
+
+Each estimator's contract is in [docs/contracts/](docs/contracts/README.md). Parity with
+scikit-learn is recorded in [docs/parity.md](docs/parity.md).
 
 ## Verification
 
 Each algorithm has a contract in `docs/contracts/`, written as `requires` and `ensures`
-clauses. The linear clauses are checked by a QF_LRA solver, `tpt-solver`, and every
-UNSAT answer is accepted only after its certificate is checked. Clauses outside linear
-arithmetic (for example monotone inertia descent or orthogonality) are checked at run
-time by runtime assertions. CI fails if an implemented algorithm has a contract clause
-without its runtime check. Results are compared
-with scikit-learn to 1e-9, on committed fixtures. The verifier and the solver are
-separate, dev-only tools; the library crates have no solver dependency.
+clauses. The linear clauses are checked by a QF_LRA solver, `tpt-solver`, and every UNSAT
+answer is accepted only after its certificate is checked. Clauses outside linear arithmetic
+(for example monotone inertia descent, or orthogonality) are checked at run time by runtime
+assertions. CI fails if an implemented algorithm has a contract clause without its runtime
+check. Results are compared with scikit-learn to 1e-9 or 1e-6, depending on the algorithm, on
+committed fixtures. The verifier and the solver are separate, dev-only tools; the library
+crates have no solver dependency.
+
+Tree models add invariants that are easy to state and check: the leaves of a tree partition
+the training rows, depth is bounded, and each boosting round does not increase the training
+error.
+
+## Model files
+
+Fitted models can be written to and read from a versioned binary format, specified in
+[docs/model-format.md](docs/model-format.md). The format has a magic header, a version, a model
+kind, little-endian fields and a checksum. Readers refuse newer versions and any file whose
+contents don't fit the model's invariants. Golden files from version 1 are committed and
+tested on every run.
+
+The Rust crates read and write model files. The bindings do not expose this yet.
 
 ## Bindings
 
-- Python: `ffi/python`, PyO3 and maturin, `abi3` wheels for Python 3.9 and later.
-- WebAssembly: `ffi/wasm`, wasm-bindgen.
-- C ABI: `ffi/c`, with a generated header, for the planned Go binding.
+| Directory | Binding | What it covers |
+| --- | --- | --- |
+| [`ffi/python`](ffi/python/README.md) | Python (PyO3, abi3 wheels) | KMeans, PCA and the Phase 8 estimators |
+| [`ffi/wasm`](ffi/wasm/README.md) | WebAssembly (wasm-bindgen) | KMeans, PCA and the Phase 8 estimators |
+| [`ffi/c`](ffi/c) | C ABI (cbindgen header) | KMeans, PCA and all the Phase 8 estimators |
+| [`ffi/go`](ffi/go/README.md) | Go (cgo over the C ABI) | KMeans and PCA |
 
-See `docs/bindings.md` for the decisions and what is still open.
+The preprocessing transformers and the tree models are not yet exposed in any binding. See
+[docs/usage.md](docs/usage.md) for examples of each binding.
+
+## Documentation
+
+- [Usage guide](docs/usage.md), for each binding.
+- [Model file format](docs/model-format.md).
+- [Contracts and the verifier](docs/contracts/README.md).
+- [Design specification](docs/DESIGN.md).
+- [Benchmarks against scikit-learn](docs/benchmarks.md), and [parity](docs/parity.md).
+- A static landing page is in [docs/site/](docs/site/index.html).
 
 ## Goals
 
 - **Proven correctness** — contracts, not just tests.
 - **Modern API** — type-safe estimators, zero-copy where possible, `no_std` + `alloc` core.
 - **Scikit-compatible surface** — familiar `fit` / `transform` / `predict` semantics.
-- **FFI-first** — Python (PyO3) and Go (cgo) bindings, generated rather than hand-rolled.
+- **FFI-first** — Python, WebAssembly, C and Go bindings, generated or thin rather than
+  hand-rolled.
 
 See [docs/DESIGN.md](docs/DESIGN.md) for the full design specification.
 
@@ -44,16 +85,17 @@ Each crate has its own README and changelog.
 
 | Crate | Status | Purpose | Docs |
 | --- | --- | --- | --- |
-| `tpt-ml-proven-core` | Implemented | Estimator traits, contracts, shared errors (`no_std` + `alloc`) | [README](crates/tpt-ml-proven-core/README.md) · [CHANGELOG](crates/tpt-ml-proven-core/CHANGELOG.md) |
+| `tpt-ml-proven-core` | Implemented | Estimator traits, contracts, shared errors, model file format (`no_std` + `alloc`) | [README](crates/tpt-ml-proven-core/README.md) · [CHANGELOG](crates/tpt-ml-proven-core/CHANGELOG.md) |
 | `tpt-ml-proven-clustering` | KMeans, DBSCAN, HDBSCAN implemented | Clustering estimators | [README](crates/tpt-ml-proven-clustering/README.md) · [CHANGELOG](crates/tpt-ml-proven-clustering/CHANGELOG.md) |
 | `tpt-ml-proven-decomposition` | PCA, TruncatedSVD, NMF implemented | Matrix decomposition estimators | [README](crates/tpt-ml-proven-decomposition/README.md) · [CHANGELOG](crates/tpt-ml-proven-decomposition/CHANGELOG.md) |
-| `tpt-ml-proven-linear` | Ridge, Lasso, ElasticNet, logistic regression (binary and multinomial) implemented | [README](crates/tpt-ml-proven-linear/README.md) · [CHANGELOG](crates/tpt-ml-proven-linear/CHANGELOG.md) |
-| `tpt-ml-proven-preprocessing` | Scalers, encoders, imputers implemented | [README](crates/tpt-ml-proven-preprocessing/README.md) · [CHANGELOG](crates/tpt-ml-proven-preprocessing/CHANGELOG.md) |
-| `tpt-ml-proven-ensemble` | Stump forest implemented | Bagged decision stumps | [README](crates/tpt-ml-proven-ensemble/README.md) · [CHANGELOG](crates/tpt-ml-proven-ensemble/CHANGELOG.md) |
-| `tpt-ml-proven-ffi` | Placeholder | FFI surface; the bindings live in `ffi/` | [README](crates/tpt-ml-proven-ffi/README.md) · [CHANGELOG](crates/tpt-ml-proven-ffi/CHANGELOG.md) |
+| `tpt-ml-proven-linear` | Ridge, Lasso, ElasticNet, logistic implemented | Linear models | [README](crates/tpt-ml-proven-linear/README.md) · [CHANGELOG](crates/tpt-ml-proven-linear/CHANGELOG.md) |
+| `tpt-ml-proven-preprocessing` | Scalers, encoders, imputers implemented | Preprocessing transformers | [README](crates/tpt-ml-proven-preprocessing/README.md) · [CHANGELOG](crates/tpt-ml-proven-preprocessing/CHANGELOG.md) |
+| `tpt-ml-proven-ensemble` | StumpForest implemented | Bagged decision stumps | [README](crates/tpt-ml-proven-ensemble/README.md) · [CHANGELOG](crates/tpt-ml-proven-ensemble/CHANGELOG.md) |
+| `tpt-ml-proven-trees` | DecisionTreeRegressor, GradientBoostingRegressor implemented | Tree models with structural invariants | [README](crates/tpt-ml-proven-trees/README.md) · [CHANGELOG](crates/tpt-ml-proven-trees/CHANGELOG.md) |
+| `tpt-ml-proven-ffi` | No code of its own | Bindings live in `ffi/` | [README](crates/tpt-ml-proven-ffi/README.md) · [CHANGELOG](crates/tpt-ml-proven-ffi/CHANGELOG.md) |
 
-Workspace-wide changes (contracts, the verifier, parity tests, bindings) are recorded in
-the [root changelog](CHANGELOG.md).
+Workspace-wide changes (contracts, the verifier, parity tests, bindings, the file format) are
+recorded in the [root changelog](CHANGELOG.md).
 
 ## Building
 
@@ -62,7 +104,8 @@ cargo build --workspace
 cargo test --workspace
 ```
 
-The toolchain is pinned to `stable` via [rust-toolchain.toml](rust-toolchain.toml).
+The toolchain is pinned to `stable` via [rust-toolchain.toml](rust-toolchain.toml). The
+bindings build from their own directories; see each binding's README.
 
 ## Licence
 

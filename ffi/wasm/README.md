@@ -43,4 +43,7 @@ lr.fit(data, 2, Float64Array.from([0, 0, 0, 1, 1, 1]));
 const proba = lr.predictProba(data, 2);         // flat, one row per sample
 ```
 
-The Phase 8 estimators are not yet exposed through the C ABI.
+
+Not yet exposed in WebAssembly: the scalers, encoders and imputers, the tree models, and
+model files (save and load). See [docs/model-format.md](../../docs/model-format.md) for the
+format.

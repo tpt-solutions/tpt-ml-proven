@@ -15,6 +15,8 @@ Which estimators each binding exposes:
 | LogisticRegression (binary and multinomial) | yes | yes | yes | yes | no |
 | StumpForest | yes | yes | yes | yes | no |
 | Scalers, encoders, imputers | yes | no | no | no | no |
+| DecisionTreeRegressor, GradientBoostingRegressor | yes | no | no | no | no |
+| Model files (save and load) | yes | no | no | no | no |
 
 ## Rust
 
@@ -40,6 +42,26 @@ use tpt_ml_proven_linear::Ridge;
 let mut model = Ridge::<f64>::new(0.1);
 SupervisedEstimator::fit(&mut model, DenseView::new(&x, rows, cols)?, &y[..])?;
 let predictions = model.predict(DenseView::new(&x, rows, cols)?)?;
+```
+
+Model files store a fitted model in the version 1 format, and load it back:
+
+```rust
+use tpt_ml_proven_linear::Ridge;
+
+let bytes = model.to_bytes()?;            // Vec<u8>, see docs/model-format.md
+std::fs::write("ridge.tpml", &bytes)?;
+let loaded = Ridge::<f64>::from_bytes(&std::fs::read("ridge.tpml")?)?;
+```
+
+Tree models come from the trees crate:
+
+```rust
+use tpt_ml_proven_trees::GradientBoostingRegressor;
+
+let mut model = GradientBoostingRegressor::new(100, 3).with_learning_rate(0.1);
+model.fit(DenseView::new(&x, rows, cols)?, &y[..])?;
+let curve = model.train_loss().unwrap();  // never increases, see the contract
 ```
 
 Errors are `tpt_ml_proven_core::error::Error`. Parameter, shape and finiteness problems are
