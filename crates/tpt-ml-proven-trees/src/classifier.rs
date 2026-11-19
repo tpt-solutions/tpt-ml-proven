@@ -416,6 +416,25 @@ fn best_split(
     best.filter(|_| best_score <= parent + 1e-12 * (1.0 + parent.abs()))
 }
 
+// ---------------------------------------------------------------- settings
+
+impl DecisionTreeClassifier {
+    /// Maximum depth the tree was configured with.
+    pub fn max_depth(&self) -> usize {
+        self.max_depth
+    }
+
+    /// Minimum rows per leaf the tree was configured with.
+    pub fn min_samples_leaf(&self) -> usize {
+        self.min_samples_leaf
+    }
+
+    /// Impurity measure the tree was configured with.
+    pub fn criterion(&self) -> Criterion {
+        self.criterion
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

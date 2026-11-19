@@ -222,6 +222,15 @@ impl<F: Float> Default for SimpleImputer<F> {
     }
 }
 
+// ---------------------------------------------------------------- settings
+
+impl<F: Float> SimpleImputer<F> {
+    /// The strategy the imputer was configured with.
+    pub fn strategy(&self) -> ImputeStrategy {
+        self.strategy
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

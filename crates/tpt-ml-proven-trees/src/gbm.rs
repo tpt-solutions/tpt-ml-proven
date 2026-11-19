@@ -115,11 +115,13 @@ impl DecisionTreeRegressor {
 }
 
 impl DecisionTreeRegressor {
-    pub(crate) fn max_depth(&self) -> usize {
+    /// The maximum depth the model was configured with.
+    pub fn max_depth(&self) -> usize {
         self.max_depth
     }
 
-    pub(crate) fn min_samples_leaf(&self) -> usize {
+    /// The minimum rows per leaf the model was configured with.
+    pub fn min_samples_leaf(&self) -> usize {
         self.min_samples_leaf
     }
 
@@ -272,31 +274,38 @@ impl GradientBoostingRegressor {
 }
 
 impl GradientBoostingRegressor {
-    pub(crate) fn n_estimators(&self) -> usize {
+    /// The number of trees the model was configured to grow.
+    pub fn n_estimators(&self) -> usize {
         self.n_estimators
     }
 
-    pub(crate) fn learning_rate(&self) -> f64 {
+    /// The shrinkage the model was configured with.
+    pub fn learning_rate(&self) -> f64 {
         self.learning_rate
     }
 
-    pub(crate) fn max_depth(&self) -> usize {
+    /// The maximum depth the model was configured with.
+    pub fn max_depth(&self) -> usize {
         self.max_depth
     }
 
-    pub(crate) fn min_samples_leaf(&self) -> usize {
+    /// The minimum rows per leaf the model was configured with.
+    pub fn min_samples_leaf(&self) -> usize {
         self.min_samples_leaf
     }
 
-    pub(crate) fn subsample(&self) -> f64 {
+    /// The fraction of rows each round used.
+    pub fn subsample(&self) -> f64 {
         self.subsample
     }
 
-    pub(crate) fn max_features(&self) -> Option<usize> {
+    /// The features considered per split, or `None` for all of them.
+    pub fn max_features(&self) -> Option<usize> {
         self.max_features
     }
 
-    pub(crate) fn seed(&self) -> u64 {
+    /// The seed the model was configured with.
+    pub fn seed(&self) -> u64 {
         self.seed
     }
 

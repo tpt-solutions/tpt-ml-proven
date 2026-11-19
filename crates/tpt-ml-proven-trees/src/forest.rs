@@ -364,6 +364,67 @@ impl Predictor for RandomForestClassifier {
     }
 }
 
+// ---------------------------------------------------------------- settings
+
+impl RandomForestRegressor {
+    /// Number of trees the forest was configured to grow.
+    pub fn n_estimators_setting(&self) -> usize {
+        self.n_estimators
+    }
+
+    /// Maximum depth of each tree.
+    pub fn max_depth(&self) -> usize {
+        self.max_depth
+    }
+
+    /// Minimum rows per leaf of each tree.
+    pub fn min_samples_leaf(&self) -> usize {
+        self.min_samples_leaf
+    }
+
+    /// Features considered per split, or `None` for the default.
+    pub fn max_features(&self) -> Option<usize> {
+        self.max_features
+    }
+
+    /// The seed the forest was configured with.
+    pub fn seed(&self) -> u64 {
+        self.seed
+    }
+}
+
+impl RandomForestClassifier {
+    /// Number of trees the forest was configured to grow.
+    pub fn n_estimators_setting(&self) -> usize {
+        self.n_estimators
+    }
+
+    /// Maximum depth of each tree.
+    pub fn max_depth(&self) -> usize {
+        self.max_depth
+    }
+
+    /// Minimum rows per leaf of each tree.
+    pub fn min_samples_leaf(&self) -> usize {
+        self.min_samples_leaf
+    }
+
+    /// Impurity measure of each tree.
+    pub fn criterion(&self) -> Criterion {
+        self.criterion
+    }
+
+    /// Features considered per split, or `None` for the default.
+    pub fn max_features(&self) -> Option<usize> {
+        self.max_features
+    }
+
+    /// The seed the forest was configured with.
+    pub fn seed(&self) -> u64 {
+        self.seed
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
