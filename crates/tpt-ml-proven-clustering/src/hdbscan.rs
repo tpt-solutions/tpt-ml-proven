@@ -100,7 +100,7 @@ fn mutual_reachability_mst(dist: &[f64], n: usize, min_samples: usize) -> Vec<(u
     let core: Vec<f64> = (0..n)
         .map(|i| {
             let mut row: Vec<f64> = dist[i * n..(i + 1) * n].to_vec();
-            row.sort_by(|a, b| a.partial_cmp(b).expect("finite distances"));
+            row.sort_by(f64::total_cmp);
             row[min_samples - 1]
         })
         .collect();
@@ -117,7 +117,7 @@ fn mutual_reachability_mst(dist: &[f64], n: usize, min_samples: usize) -> Vec<(u
     for _ in 1..n {
         let next = (0..n)
             .filter(|&j| !in_tree[j])
-            .min_by(|&a, &b| best[a].partial_cmp(&best[b]).expect("finite distances"))
+            .min_by(|&a, &b| best[a].total_cmp(&best[b]))
             .expect("a vertex remains outside the tree");
         in_tree[next] = true;
         edges.push((best_from[next], next, best[next]));
@@ -136,7 +136,7 @@ fn mutual_reachability_mst(dist: &[f64], n: usize, min_samples: usize) -> Vec<(u
 
 /// Single-linkage tree from MST edges, processed in ascending weight.
 fn single_linkage(mut edges: Vec<(usize, usize, f64)>, n: usize) -> Vec<Merge> {
-    edges.sort_by(|a, b| a.2.partial_cmp(&b.2).expect("finite distances"));
+    edges.sort_by(|a, b| a.2.total_cmp(&b.2));
     // Union-find over samples; each set remembers its current tree node and size.
     let mut parent: Vec<usize> = (0..n).collect();
     let mut node_of: Vec<usize> = (0..n).collect();
