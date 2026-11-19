@@ -6,7 +6,9 @@
 //!
 //! Conventions:
 //!
-//! * Data is `f64`, row-major, passed as a pointer plus `rows` and `cols`.
+//! * Data is row-major, passed as a pointer plus `rows` and `cols`. It is `f64`, except for the
+//!   `_fit_f32` functions, which take `f32` and make a single-precision model. Predictions and
+//!   transforms always take `f64`, which a single-precision model narrows, and return `f64`.
 //! * Every function returns a [`TpmlStatus`]. `Ok` is 0. On failure, call
 //!   `tpml_last_error_message` for a description. The message is valid until the next
 //!   call on the same thread.
@@ -21,7 +23,7 @@ use std::panic::{catch_unwind, AssertUnwindSafe};
 
 use tpt_ml_proven_clustering::{Init, KMeans};
 use tpt_ml_proven_core::error::Error;
-use tpt_ml_proven_core::{DenseView, Predictor, Transformer, UnsupervisedEstimator};
+use tpt_ml_proven_core::{DenseView, Float, Predictor, Transformer, UnsupervisedEstimator};
 use tpt_ml_proven_decomposition::Pca;
 
 mod models;
@@ -127,7 +129,7 @@ where
 ///
 /// # Safety
 /// `data` must be valid for reads of `rows * cols` `f64` values.
-unsafe fn input<'a>(data: *const f64, rows: usize, cols: usize) -> Result<&'a [f64], Failure> {
+unsafe fn input<'a, T>(data: *const T, rows: usize, cols: usize) -> Result<&'a [T], Failure> {
     if data.is_null() {
         return Err(Failure::new(
             TpmlStatus::NullPointer,
@@ -163,6 +165,12 @@ unsafe fn output<T: Copy>(out: *mut T, len: usize, values: &[T]) -> Result<(), F
 
 // ---------------------------------------------------------------- KMeans
 
+/// The fitted KMeans, in the precision of the last fit.
+enum KState {
+    F64(KMeans<f64>),
+    F32(KMeans<f32>),
+}
+
 /// Opaque KMeans handle.
 pub struct TpmlKMeans {
     n_clusters: usize,
@@ -170,7 +178,28 @@ pub struct TpmlKMeans {
     tol: f64,
     seed: u64,
     threads: usize,
-    fitted: Option<KMeans<f64>>,
+    fitted: Option<KState>,
+}
+
+impl TpmlKMeans {
+    fn estimator<F: Float>(&self) -> KMeans<F> {
+        KMeans::<F>::new(self.n_clusters)
+            .with_max_iter(self.max_iter)
+            .with_tol(self.tol)
+            .with_init(Init::KMeansPlusPlus)
+            .with_seed(self.seed)
+            .with_threads(self.threads)
+    }
+}
+
+/// Narrows `f64` input for a single-precision model.
+fn narrow(values: &[f64]) -> Vec<f32> {
+    values.iter().map(|&v| v as f32).collect()
+}
+
+/// Widens single-precision results to `f64` for the caller.
+fn widen(values: &[f32]) -> Vec<f64> {
+    values.iter().map(|&v| f64::from(v)).collect()
 }
 
 /// Creates a KMeans estimator (k-means++ initialisation). Free it with
@@ -209,7 +238,7 @@ pub unsafe extern "C" fn tpml_kmeans_free(h: *mut TpmlKMeans) {
     }
 }
 
-/// Fits to `rows x cols` row-major data.
+/// Fits to `rows x cols` row-major `f64` data. The model is double precision.
 ///
 /// # Safety
 /// `h` must be a live handle. `data` must be valid for `rows * cols` reads.
@@ -225,14 +254,33 @@ pub unsafe extern "C" fn tpml_kmeans_fit(
             .as_mut()
             .ok_or_else(|| Failure::new(TpmlStatus::NullPointer, "handle is null"))?;
         let slice = input(data, rows, cols)?;
-        let mut km = KMeans::<f64>::new(h.n_clusters)
-            .with_max_iter(h.max_iter)
-            .with_tol(h.tol)
-            .with_init(Init::KMeansPlusPlus)
-            .with_seed(h.seed)
-            .with_threads(h.threads);
+        let mut km = h.estimator::<f64>();
         UnsupervisedEstimator::fit(&mut km, DenseView::new(slice, rows, cols)?)?;
-        h.fitted = Some(km);
+        h.fitted = Some(KState::F64(km));
+        Ok(())
+    })
+}
+
+/// Fits to `rows x cols` row-major `f32` data. The model is single precision, which halves the
+/// memory the data needs. Predictions still take `f64` input, which is narrowed.
+///
+/// # Safety
+/// `h` must be a live handle. `data` must be valid for `rows * cols` reads.
+#[no_mangle]
+pub unsafe extern "C" fn tpml_kmeans_fit_f32(
+    h: *mut TpmlKMeans,
+    data: *const f32,
+    rows: usize,
+    cols: usize,
+) -> TpmlStatus {
+    run(|| {
+        let h = h
+            .as_mut()
+            .ok_or_else(|| Failure::new(TpmlStatus::NullPointer, "handle is null"))?;
+        let slice = input(data, rows, cols)?;
+        let mut km = h.estimator::<f32>();
+        UnsupervisedEstimator::fit(&mut km, DenseView::new(slice, rows, cols)?)?;
+        h.fitted = Some(KState::F32(km));
         Ok(())
     })
 }
@@ -255,9 +303,14 @@ pub unsafe extern "C" fn tpml_kmeans_predict(
         let h = h
             .as_ref()
             .ok_or_else(|| Failure::new(TpmlStatus::NullPointer, "handle is null"))?;
-        let km = h.fitted.as_ref().ok_or(Error::NotFitted)?;
         let slice = input(data, rows, cols)?;
-        let labels = km.predict(DenseView::new(slice, rows, cols)?)?;
+        let labels = match h.fitted.as_ref().ok_or(Error::NotFitted)? {
+            KState::F64(km) => km.predict(DenseView::new(slice, rows, cols)?)?,
+            KState::F32(km) => {
+                let narrowed = narrow(slice);
+                km.predict(DenseView::new(narrowed.as_slice(), rows, cols)?)?
+            }
+        };
         output(out, out_len, &labels)
     })
 }
@@ -279,10 +332,16 @@ pub unsafe extern "C" fn tpml_kmeans_transform(
         let h = h
             .as_ref()
             .ok_or_else(|| Failure::new(TpmlStatus::NullPointer, "handle is null"))?;
-        let km = h.fitted.as_ref().ok_or(Error::NotFitted)?;
         let slice = input(data, rows, cols)?;
-        let d = km.transform(DenseView::new(slice, rows, cols)?)?;
-        output(out, out_len, &d.into_vec())
+        let values: Vec<f64> = match h.fitted.as_ref().ok_or(Error::NotFitted)? {
+            KState::F64(km) => km.transform(DenseView::new(slice, rows, cols)?)?.into_vec(),
+            KState::F32(km) => {
+                let narrowed = narrow(slice);
+                let d = km.transform(DenseView::new(narrowed.as_slice(), rows, cols)?)?;
+                widen(&d.into_vec())
+            }
+        };
+        output(out, out_len, &values)
     })
 }
 
@@ -300,8 +359,11 @@ pub unsafe extern "C" fn tpml_kmeans_labels(
         let h = h
             .as_ref()
             .ok_or_else(|| Failure::new(TpmlStatus::NullPointer, "handle is null"))?;
-        let km = h.fitted.as_ref().ok_or(Error::NotFitted)?;
-        output(out, out_len, km.labels().unwrap_or(&[]))
+        let labels: &[usize] = match h.fitted.as_ref().ok_or(Error::NotFitted)? {
+            KState::F64(km) => km.labels().unwrap_or(&[]),
+            KState::F32(km) => km.labels().unwrap_or(&[]),
+        };
+        output(out, out_len, labels)
     })
 }
 
@@ -319,9 +381,18 @@ pub unsafe extern "C" fn tpml_kmeans_centers(
         let h = h
             .as_ref()
             .ok_or_else(|| Failure::new(TpmlStatus::NullPointer, "handle is null"))?;
-        let km = h.fitted.as_ref().ok_or(Error::NotFitted)?;
-        let c = km.cluster_centers().ok_or(Error::NotFitted)?;
-        output(out, out_len, &c.clone().into_vec())
+        let values: Vec<f64> = match h.fitted.as_ref().ok_or(Error::NotFitted)? {
+            KState::F64(km) => km
+                .cluster_centers()
+                .ok_or(Error::NotFitted)?
+                .clone()
+                .into_vec(),
+            KState::F32(km) => {
+                let c = km.cluster_centers().ok_or(Error::NotFitted)?.clone();
+                widen(&c.into_vec())
+            }
+        };
+        output(out, out_len, &values)
     })
 }
 
@@ -335,8 +406,11 @@ pub unsafe extern "C" fn tpml_kmeans_inertia(h: *const TpmlKMeans, out: *mut f64
         let h = h
             .as_ref()
             .ok_or_else(|| Failure::new(TpmlStatus::NullPointer, "handle is null"))?;
-        let km = h.fitted.as_ref().ok_or(Error::NotFitted)?;
-        output(out, 1, &[km.inertia().ok_or(Error::NotFitted)?])
+        let inertia = match h.fitted.as_ref().ok_or(Error::NotFitted)? {
+            KState::F64(km) => km.inertia().ok_or(Error::NotFitted)?,
+            KState::F32(km) => f64::from(km.inertia().ok_or(Error::NotFitted)?),
+        };
+        output(out, 1, &[inertia])
     })
 }
 
@@ -350,17 +424,26 @@ pub unsafe extern "C" fn tpml_kmeans_n_iter(h: *const TpmlKMeans, out: *mut usiz
         let h = h
             .as_ref()
             .ok_or_else(|| Failure::new(TpmlStatus::NullPointer, "handle is null"))?;
-        let km = h.fitted.as_ref().ok_or(Error::NotFitted)?;
-        output(out, 1, &[km.n_iter().ok_or(Error::NotFitted)?])
+        let n = match h.fitted.as_ref().ok_or(Error::NotFitted)? {
+            KState::F64(km) => km.n_iter(),
+            KState::F32(km) => km.n_iter(),
+        };
+        output(out, 1, &[n.ok_or(Error::NotFitted)?])
     })
 }
 
 // ---------------------------------------------------------------- PCA
 
+/// The fitted PCA, in the precision of the last fit.
+enum PState {
+    F64(Pca<f64>),
+    F32(Pca<f32>),
+}
+
 /// Opaque PCA handle.
 pub struct TpmlPca {
     n_components: usize,
-    fitted: Option<Pca<f64>>,
+    fitted: Option<PState>,
 }
 
 /// Creates a PCA keeping `n_components` components. Free with `tpml_pca_free`.
@@ -388,7 +471,7 @@ pub unsafe extern "C" fn tpml_pca_free(h: *mut TpmlPca) {
     }
 }
 
-/// Fits to `rows x cols` row-major data.
+/// Fits to `rows x cols` row-major `f64` data. The model is double precision.
 ///
 /// # Safety
 /// `h` must be a live handle. `data` must be valid for `rows * cols` reads.
@@ -406,7 +489,31 @@ pub unsafe extern "C" fn tpml_pca_fit(
         let slice = input(data, rows, cols)?;
         let mut p = Pca::<f64>::new(h.n_components);
         UnsupervisedEstimator::fit(&mut p, DenseView::new(slice, rows, cols)?)?;
-        h.fitted = Some(p);
+        h.fitted = Some(PState::F64(p));
+        Ok(())
+    })
+}
+
+/// Fits to `rows x cols` row-major `f32` data. The model is single precision. Transforms still
+/// take `f64` input, which is narrowed.
+///
+/// # Safety
+/// `h` must be a live handle. `data` must be valid for `rows * cols` reads.
+#[no_mangle]
+pub unsafe extern "C" fn tpml_pca_fit_f32(
+    h: *mut TpmlPca,
+    data: *const f32,
+    rows: usize,
+    cols: usize,
+) -> TpmlStatus {
+    run(|| {
+        let h = h
+            .as_mut()
+            .ok_or_else(|| Failure::new(TpmlStatus::NullPointer, "handle is null"))?;
+        let slice = input(data, rows, cols)?;
+        let mut p = Pca::<f32>::new(h.n_components);
+        UnsupervisedEstimator::fit(&mut p, DenseView::new(slice, rows, cols)?)?;
+        h.fitted = Some(PState::F32(p));
         Ok(())
     })
 }
@@ -429,10 +536,16 @@ pub unsafe extern "C" fn tpml_pca_transform(
         let h = h
             .as_ref()
             .ok_or_else(|| Failure::new(TpmlStatus::NullPointer, "handle is null"))?;
-        let p = h.fitted.as_ref().ok_or(Error::NotFitted)?;
         let slice = input(data, rows, cols)?;
-        let z = p.transform(DenseView::new(slice, rows, cols)?)?;
-        output(out, out_len, &z.into_vec())
+        let values: Vec<f64> = match h.fitted.as_ref().ok_or(Error::NotFitted)? {
+            PState::F64(p) => p.transform(DenseView::new(slice, rows, cols)?)?.into_vec(),
+            PState::F32(p) => {
+                let narrowed = narrow(slice);
+                let z = p.transform(DenseView::new(narrowed.as_slice(), rows, cols)?)?;
+                widen(&z.into_vec())
+            }
+        };
+        output(out, out_len, &values)
     })
 }
 
@@ -450,9 +563,14 @@ pub unsafe extern "C" fn tpml_pca_components(
         let h = h
             .as_ref()
             .ok_or_else(|| Failure::new(TpmlStatus::NullPointer, "handle is null"))?;
-        let p = h.fitted.as_ref().ok_or(Error::NotFitted)?;
-        let c = p.components().ok_or(Error::NotFitted)?;
-        output(out, out_len, &c.clone().into_vec())
+        let values: Vec<f64> = match h.fitted.as_ref().ok_or(Error::NotFitted)? {
+            PState::F64(p) => p.components().ok_or(Error::NotFitted)?.clone().into_vec(),
+            PState::F32(p) => {
+                let c = p.components().ok_or(Error::NotFitted)?.clone();
+                widen(&c.into_vec())
+            }
+        };
+        output(out, out_len, &values)
     })
 }
 
@@ -470,12 +588,11 @@ pub unsafe extern "C" fn tpml_pca_explained_variance(
         let h = h
             .as_ref()
             .ok_or_else(|| Failure::new(TpmlStatus::NullPointer, "handle is null"))?;
-        let p = h.fitted.as_ref().ok_or(Error::NotFitted)?;
-        output(
-            out,
-            out_len,
-            p.explained_variance().ok_or(Error::NotFitted)?,
-        )
+        let values: Vec<f64> = match h.fitted.as_ref().ok_or(Error::NotFitted)? {
+            PState::F64(p) => p.explained_variance().ok_or(Error::NotFitted)?.to_vec(),
+            PState::F32(p) => widen(p.explained_variance().ok_or(Error::NotFitted)?),
+        };
+        output(out, out_len, &values)
     })
 }
 
@@ -498,10 +615,18 @@ pub unsafe extern "C" fn tpml_pca_inverse_transform(
         let h = h
             .as_ref()
             .ok_or_else(|| Failure::new(TpmlStatus::NullPointer, "handle is null"))?;
-        let p = h.fitted.as_ref().ok_or(Error::NotFitted)?;
         let slice = input(z, rows, cols)?;
-        let x = p.inverse_transform(&DenseView::new(slice, rows, cols)?)?;
-        output(out, out_len, &x.into_vec())
+        let values: Vec<f64> = match h.fitted.as_ref().ok_or(Error::NotFitted)? {
+            PState::F64(p) => p
+                .inverse_transform(&DenseView::new(slice, rows, cols)?)?
+                .into_vec(),
+            PState::F32(p) => {
+                let narrowed = narrow(slice);
+                let x = p.inverse_transform(&DenseView::new(narrowed.as_slice(), rows, cols)?)?;
+                widen(&x.into_vec())
+            }
+        };
+        output(out, out_len, &values)
     })
 }
 
@@ -647,6 +772,72 @@ mod tests {
             assert_eq!(tpml_kmeans_n_iter(h, &mut n), TpmlStatus::Ok);
             assert!(n >= 1, "n_iter was {n}");
             tpml_kmeans_free(h);
+        }
+    }
+
+    #[test]
+    fn kmeans_f32_fit_separates_the_blobs() {
+        let data = [0.0_f32, 0.0, 0.1, 0.0, 10.0, 10.0, 10.1, 10.0];
+        let query = [0.0_f64, 0.0, 10.0, 10.0];
+        unsafe {
+            let h = tpml_kmeans_new(2, 300, 1e-4, 1, 1);
+            assert_eq!(tpml_kmeans_fit_f32(h, data.as_ptr(), 4, 2), TpmlStatus::Ok);
+            let mut labels = [0_usize; 4];
+            assert_eq!(
+                tpml_kmeans_labels(h, labels.as_mut_ptr(), 4),
+                TpmlStatus::Ok
+            );
+            assert_eq!(labels[0], labels[1]);
+            assert_eq!(labels[2], labels[3]);
+            assert_ne!(labels[0], labels[2]);
+            // Predictions take f64 input, which the single-precision model narrows.
+            let mut predicted = [0_usize; 2];
+            assert_eq!(
+                tpml_kmeans_predict(h, query.as_ptr(), 2, 2, predicted.as_mut_ptr(), 2),
+                TpmlStatus::Ok
+            );
+            assert_eq!(predicted, [labels[0], labels[2]]);
+            let mut inertia = 0.0_f64;
+            assert_eq!(tpml_kmeans_inertia(h, &mut inertia), TpmlStatus::Ok);
+            assert!(inertia.is_finite() && inertia >= 0.0);
+            tpml_kmeans_free(h);
+        }
+    }
+
+    #[test]
+    fn pca_f32_matches_f64_within_single_precision() {
+        let data64 = [1.0_f64, 2.0, 2.0, 4.0, 3.0, 6.0, 4.0, 8.0];
+        let data32: Vec<f32> = data64.iter().map(|&v| v as f32).collect();
+        unsafe {
+            let h64 = tpml_pca_new(1);
+            assert_eq!(tpml_pca_fit(h64, data64.as_ptr(), 4, 2), TpmlStatus::Ok);
+            let h32 = tpml_pca_new(1);
+            assert_eq!(tpml_pca_fit_f32(h32, data32.as_ptr(), 4, 2), TpmlStatus::Ok);
+
+            let mut z64 = [0.0_f64; 4];
+            let mut z32 = [0.0_f64; 4];
+            assert_eq!(
+                tpml_pca_transform(h64, data64.as_ptr(), 4, 2, z64.as_mut_ptr(), 4),
+                TpmlStatus::Ok
+            );
+            assert_eq!(
+                tpml_pca_transform(h32, data64.as_ptr(), 4, 2, z32.as_mut_ptr(), 4),
+                TpmlStatus::Ok
+            );
+            for (a, b) in z64.iter().zip(z32.iter()) {
+                assert!((a.abs() - b.abs()).abs() < 1e-4, "{a} vs {b}");
+            }
+
+            let mut back = [0.0_f64; 8];
+            assert_eq!(
+                tpml_pca_inverse_transform(h32, z32.as_ptr(), 4, 1, back.as_mut_ptr(), 8),
+                TpmlStatus::Ok
+            );
+            for (a, b) in back.iter().zip(data64.iter()) {
+                assert!((a - b).abs() < 1e-4, "{a} != {b}");
+            }
+            tpml_pca_free(h64);
+            tpml_pca_free(h32);
         }
     }
 }

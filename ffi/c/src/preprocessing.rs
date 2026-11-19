@@ -571,7 +571,10 @@ mod tests {
         assert!(!h.is_null());
         let mut width = 0usize;
         unsafe {
-            assert_eq!(tpml_standard_scaler_fit(h, x.as_ptr(), 4, 2), TpmlStatus::Ok);
+            assert_eq!(
+                tpml_standard_scaler_fit(h, x.as_ptr(), 4, 2),
+                TpmlStatus::Ok
+            );
             assert_eq!(tpml_standard_scaler_out_cols(h, &mut width), TpmlStatus::Ok);
             assert_eq!(width, 2);
             let mut out = vec![0.0; 8];
@@ -618,7 +621,10 @@ mod tests {
         let h = tpml_one_hot_encoder_new();
         let mut width = 0usize;
         unsafe {
-            assert_eq!(tpml_one_hot_encoder_fit(h, cats.as_ptr(), 3, 2), TpmlStatus::Ok);
+            assert_eq!(
+                tpml_one_hot_encoder_fit(h, cats.as_ptr(), 3, 2),
+                TpmlStatus::Ok
+            );
             assert_eq!(tpml_one_hot_encoder_out_cols(h, &mut width), TpmlStatus::Ok);
             assert_eq!(width, 3 + 2);
             tpml_one_hot_encoder_free(h);

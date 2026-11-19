@@ -31,7 +31,9 @@ p.Fit(x)
 z, _ := p.Transform(x)
 ```
 
-- Data is `[][]float64`. Rows must be non-empty and of equal length.
+- Data is `[][]float64`. Rows must be non-empty and of equal length. For half the memory use,
+  `FitFloat32` takes `[][]float32` and makes a single-precision KMeans or PCA model. Predict,
+  Labels, Centers and Transform still take and return `float64`.
 - Errors wrap the native status. `errors.Is(err, mlproven.ErrNotFitted)` checks for a call before `Fit`.
 - Estimators hold native memory. Call `Close`. A finalizer is a fallback only.
 - Regressors and classifiers take `x [][]float64` and `y []float64`. Logistic regression and

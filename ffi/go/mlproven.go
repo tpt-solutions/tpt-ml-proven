@@ -60,7 +60,7 @@ func callC(f func() C.enum_tpml_TpmlStatus) error {
 }
 
 // flatten checks that x is a non-empty rectangular matrix and copies it row-major.
-func flatten(x [][]float64) ([]float64, int, int, error) {
+func flatten[T float32 | float64](x [][]T) ([]T, int, int, error) {
 	rows := len(x)
 	if rows == 0 {
 		return nil, 0, 0, errors.New("mlproven: input has no rows")
@@ -69,7 +69,7 @@ func flatten(x [][]float64) ([]float64, int, int, error) {
 	if cols == 0 {
 		return nil, 0, 0, errors.New("mlproven: input rows are empty")
 	}
-	data := make([]float64, 0, rows*cols)
+	data := make([]T, 0, rows*cols)
 	for i, row := range x {
 		if len(row) != cols {
 			return nil, 0, 0, fmt.Errorf("mlproven: row %d has %d values, want %d", i, len(row), cols)
@@ -98,6 +98,10 @@ func toInts(buf []C.uintptr_t) []int {
 
 func dataPtr(data []float64) *C.double {
 	return (*C.double)(unsafe.Pointer(&data[0]))
+}
+
+func dataPtr32(data []float32) *C.float {
+	return (*C.float)(unsafe.Pointer(&data[0]))
 }
 
 // checkTargets checks that y has one value per row of the matrix.

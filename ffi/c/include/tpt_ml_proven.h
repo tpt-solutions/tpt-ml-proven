@@ -215,7 +215,7 @@ struct tpml_TpmlKMeans *tpml_kmeans_new(uintptr_t n_clusters,
 void tpml_kmeans_free(struct tpml_TpmlKMeans *h);
 
 /**
- * Fits to `rows x cols` row-major data.
+ * Fits to `rows x cols` row-major `f64` data. The model is double precision.
  *
  * # Safety
  * `h` must be a live handle. `data` must be valid for `rows * cols` reads.
@@ -224,6 +224,18 @@ enum tpml_TpmlStatus tpml_kmeans_fit(struct tpml_TpmlKMeans *h,
                                      const double *data,
                                      uintptr_t rows,
                                      uintptr_t cols);
+
+/**
+ * Fits to `rows x cols` row-major `f32` data. The model is single precision, which halves the
+ * memory the data needs. Predictions still take `f64` input, which is narrowed.
+ *
+ * # Safety
+ * `h` must be a live handle. `data` must be valid for `rows * cols` reads.
+ */
+enum tpml_TpmlStatus tpml_kmeans_fit_f32(struct tpml_TpmlKMeans *h,
+                                         const float *data,
+                                         uintptr_t rows,
+                                         uintptr_t cols);
 
 /**
  * Nearest cluster for each row. `out` must hold `rows` values.
@@ -302,7 +314,7 @@ struct tpml_TpmlPca *tpml_pca_new(uintptr_t n_components);
 void tpml_pca_free(struct tpml_TpmlPca *h);
 
 /**
- * Fits to `rows x cols` row-major data.
+ * Fits to `rows x cols` row-major `f64` data. The model is double precision.
  *
  * # Safety
  * `h` must be a live handle. `data` must be valid for `rows * cols` reads.
@@ -311,6 +323,18 @@ enum tpml_TpmlStatus tpml_pca_fit(struct tpml_TpmlPca *h,
                                   const double *data,
                                   uintptr_t rows,
                                   uintptr_t cols);
+
+/**
+ * Fits to `rows x cols` row-major `f32` data. The model is single precision. Transforms still
+ * take `f64` input, which is narrowed.
+ *
+ * # Safety
+ * `h` must be a live handle. `data` must be valid for `rows * cols` reads.
+ */
+enum tpml_TpmlStatus tpml_pca_fit_f32(struct tpml_TpmlPca *h,
+                                      const float *data,
+                                      uintptr_t rows,
+                                      uintptr_t cols);
 
 /**
  * Projection onto the kept components, `rows x n_components` into `out`.

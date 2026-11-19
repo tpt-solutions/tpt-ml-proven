@@ -94,7 +94,8 @@ pub unsafe extern "C" fn tpml_decision_tree_regressor_fit(
         let h = h.as_mut().ok_or_else(null_handle)?;
         let x = input(data, rows, cols)?;
         let t = targets(y, rows)?;
-        let mut m = DecisionTreeRegressor::new(h.max_depth).with_min_samples_leaf(h.min_samples_leaf);
+        let mut m =
+            DecisionTreeRegressor::new(h.max_depth).with_min_samples_leaf(h.min_samples_leaf);
         SupervisedEstimator::fit(&mut m, DenseView::new(x, rows, cols)?, t)?;
         h.fitted = Some(m);
         Ok(())
@@ -116,7 +117,10 @@ pub unsafe extern "C" fn tpml_decision_tree_regressor_predict(
 ) -> TpmlStatus {
     run(|| {
         let h = h.as_ref().ok_or_else(null_handle)?;
-        let m = h.fitted.as_ref().ok_or(tpt_ml_proven_core::error::Error::NotFitted)?;
+        let m = h
+            .fitted
+            .as_ref()
+            .ok_or(tpt_ml_proven_core::error::Error::NotFitted)?;
         let x = input(data, rows, cols)?;
         let p = Predictor::predict(m, DenseView::new(x, rows, cols)?)?;
         output(out, out_len, &p)
@@ -202,7 +206,10 @@ pub unsafe extern "C" fn tpml_decision_tree_classifier_predict(
 ) -> TpmlStatus {
     run(|| {
         let h = h.as_ref().ok_or_else(null_handle)?;
-        let m = h.fitted.as_ref().ok_or(tpt_ml_proven_core::error::Error::NotFitted)?;
+        let m = h
+            .fitted
+            .as_ref()
+            .ok_or(tpt_ml_proven_core::error::Error::NotFitted)?;
         let x = input(data, rows, cols)?;
         let p = Predictor::predict(m, DenseView::new(x, rows, cols)?)?;
         output(out, out_len, &p)
@@ -220,7 +227,10 @@ pub unsafe extern "C" fn tpml_decision_tree_classifier_n_classes(
 ) -> TpmlStatus {
     run(|| {
         let h = h.as_ref().ok_or_else(null_handle)?;
-        let m = h.fitted.as_ref().ok_or(tpt_ml_proven_core::error::Error::NotFitted)?;
+        let m = h
+            .fitted
+            .as_ref()
+            .ok_or(tpt_ml_proven_core::error::Error::NotFitted)?;
         output(out, 1, &[m.classes().map_or(0, <[f64]>::len)])
     })
 }
@@ -237,7 +247,10 @@ pub unsafe extern "C" fn tpml_decision_tree_classifier_classes(
 ) -> TpmlStatus {
     run(|| {
         let h = h.as_ref().ok_or_else(null_handle)?;
-        let m = h.fitted.as_ref().ok_or(tpt_ml_proven_core::error::Error::NotFitted)?;
+        let m = h
+            .fitted
+            .as_ref()
+            .ok_or(tpt_ml_proven_core::error::Error::NotFitted)?;
         output(out, out_len, m.classes().unwrap_or(&[]))
     })
 }
@@ -349,7 +362,10 @@ pub unsafe extern "C" fn tpml_gradient_boosting_predict(
 ) -> TpmlStatus {
     run(|| {
         let h = h.as_ref().ok_or_else(null_handle)?;
-        let m = h.fitted.as_ref().ok_or(tpt_ml_proven_core::error::Error::NotFitted)?;
+        let m = h
+            .fitted
+            .as_ref()
+            .ok_or(tpt_ml_proven_core::error::Error::NotFitted)?;
         let x = input(data, rows, cols)?;
         let p = Predictor::predict(m, DenseView::new(x, rows, cols)?)?;
         output(out, out_len, &p)
@@ -445,7 +461,10 @@ pub unsafe extern "C" fn tpml_random_forest_regressor_predict(
 ) -> TpmlStatus {
     run(|| {
         let h = h.as_ref().ok_or_else(null_handle)?;
-        let m = h.fitted.as_ref().ok_or(tpt_ml_proven_core::error::Error::NotFitted)?;
+        let m = h
+            .fitted
+            .as_ref()
+            .ok_or(tpt_ml_proven_core::error::Error::NotFitted)?;
         let x = input(data, rows, cols)?;
         let p = Predictor::predict(m, DenseView::new(x, rows, cols)?)?;
         output(out, out_len, &p)
@@ -543,7 +562,10 @@ pub unsafe extern "C" fn tpml_random_forest_classifier_predict(
 ) -> TpmlStatus {
     run(|| {
         let h = h.as_ref().ok_or_else(null_handle)?;
-        let m = h.fitted.as_ref().ok_or(tpt_ml_proven_core::error::Error::NotFitted)?;
+        let m = h
+            .fitted
+            .as_ref()
+            .ok_or(tpt_ml_proven_core::error::Error::NotFitted)?;
         let x = input(data, rows, cols)?;
         let p = Predictor::predict(m, DenseView::new(x, rows, cols)?)?;
         output(out, out_len, &p)
@@ -565,7 +587,10 @@ pub unsafe extern "C" fn tpml_random_forest_classifier_score(
 ) -> TpmlStatus {
     run(|| {
         let h = h.as_ref().ok_or_else(null_handle)?;
-        let m = h.fitted.as_ref().ok_or(tpt_ml_proven_core::error::Error::NotFitted)?;
+        let m = h
+            .fitted
+            .as_ref()
+            .ok_or(tpt_ml_proven_core::error::Error::NotFitted)?;
         let x = input(data, rows, cols)?;
         let t = targets(y, rows)?;
         let p = Predictor::predict(m, DenseView::new(x, rows, cols)?)?;
@@ -586,9 +611,19 @@ mod tests {
         assert!(!h.is_null());
         let mut out = vec![0.0; 8];
         unsafe {
-            assert_eq!(tpml_decision_tree_regressor_fit(h, x.as_ptr(), 8, 1, y.as_ptr()), TpmlStatus::Ok);
             assert_eq!(
-                tpml_decision_tree_regressor_predict(h, x.as_ptr(), 8, 1, out.as_mut_ptr(), out.len()),
+                tpml_decision_tree_regressor_fit(h, x.as_ptr(), 8, 1, y.as_ptr()),
+                TpmlStatus::Ok
+            );
+            assert_eq!(
+                tpml_decision_tree_regressor_predict(
+                    h,
+                    x.as_ptr(),
+                    8,
+                    1,
+                    out.as_mut_ptr(),
+                    out.len()
+                ),
                 TpmlStatus::Ok
             );
             tpml_decision_tree_regressor_free(h);
@@ -603,8 +638,14 @@ mod tests {
         let h = tpml_decision_tree_classifier_new(2, 1, TpmlCriterion::Entropy);
         let mut classes = 0usize;
         unsafe {
-            assert_eq!(tpml_decision_tree_classifier_fit(h, x.as_ptr(), 8, 1, y.as_ptr()), TpmlStatus::Ok);
-            assert_eq!(tpml_decision_tree_classifier_n_classes(h, &mut classes), TpmlStatus::Ok);
+            assert_eq!(
+                tpml_decision_tree_classifier_fit(h, x.as_ptr(), 8, 1, y.as_ptr()),
+                TpmlStatus::Ok
+            );
+            assert_eq!(
+                tpml_decision_tree_classifier_n_classes(h, &mut classes),
+                TpmlStatus::Ok
+            );
             tpml_decision_tree_classifier_free(h);
         }
         assert_eq!(classes, 2);
@@ -626,9 +667,19 @@ mod tests {
         let mut out = vec![0.0; 20];
         let mut acc = 0.0;
         unsafe {
-            assert_eq!(tpml_random_forest_classifier_fit(h, x.as_ptr(), 20, 1, y.as_ptr()), TpmlStatus::Ok);
             assert_eq!(
-                tpml_random_forest_classifier_predict(h, x.as_ptr(), 20, 1, out.as_mut_ptr(), out.len()),
+                tpml_random_forest_classifier_fit(h, x.as_ptr(), 20, 1, y.as_ptr()),
+                TpmlStatus::Ok
+            );
+            assert_eq!(
+                tpml_random_forest_classifier_predict(
+                    h,
+                    x.as_ptr(),
+                    20,
+                    1,
+                    out.as_mut_ptr(),
+                    out.len()
+                ),
                 TpmlStatus::Ok
             );
             assert_eq!(
