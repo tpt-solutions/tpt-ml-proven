@@ -88,7 +88,9 @@ fn read_elastic_net<F: Float>(r: &mut Reader<'_>) -> Result<ElasticNet<F>, Error
         None
     };
     if !(alpha.is_finite() && alpha >= 0.0) {
-        return Err(invalid("elastic net penalty is not finite and non-negative"));
+        return Err(invalid(
+            "elastic net penalty is not finite and non-negative",
+        ));
     }
     if !(0.0..=1.0).contains(&l1_ratio) {
         return Err(invalid("elastic net l1_ratio is outside [0, 1]"));
@@ -150,7 +152,9 @@ mod tests {
 
     fn data() -> (Vec<f64>, Vec<f64>) {
         let x: Vec<f64> = (0..24).map(|i| ((i * 7) % 11) as f64 - 5.0).collect();
-        let y: Vec<f64> = (0..12).map(|r| 2.0 * x[r * 2] - x[r * 2 + 1] + 0.5).collect();
+        let y: Vec<f64> = (0..12)
+            .map(|r| 2.0 * x[r * 2] - x[r * 2 + 1] + 0.5)
+            .collect();
         (x, y)
     }
 
@@ -183,7 +187,10 @@ mod tests {
 
         let mut e = ElasticNet::<f64>::new(0.05, 0.4);
         SupervisedEstimator::fit(&mut e, DenseView::new(&x, 12, 2).unwrap(), &y[..]).unwrap();
-        assert_eq!(ElasticNet::<f64>::from_bytes(&e.to_bytes().unwrap()).unwrap(), e);
+        assert_eq!(
+            ElasticNet::<f64>::from_bytes(&e.to_bytes().unwrap()).unwrap(),
+            e
+        );
     }
 
     #[test]

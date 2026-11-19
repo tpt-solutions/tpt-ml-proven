@@ -58,8 +58,8 @@ extern crate alloc;
 
 pub mod contract;
 pub mod error;
-pub mod persist;
 pub mod float;
+pub mod persist;
 pub mod toy;
 pub mod traits;
 pub mod view;

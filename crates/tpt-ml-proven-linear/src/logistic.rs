@@ -311,7 +311,9 @@ impl<F: Float> LogisticRegression<F> {
         };
         r.finish()?;
         if !(c.is_finite() && c > 0.0) {
-            return Err(Error::Format { reason: "logistic C is not finite and positive" });
+            return Err(Error::Format {
+                reason: "logistic C is not finite and positive",
+            });
         }
         Ok(Self {
             c,
@@ -330,7 +332,9 @@ mod persist_tests {
 
     #[test]
     fn fitted_binary_model_round_trips() {
-        let x = [0.0_f64, 0.1, 0.2, 0.0, 0.1, 0.3, 2.0, 2.1, 1.9, 2.2, 2.3, 1.8];
+        let x = [
+            0.0_f64, 0.1, 0.2, 0.0, 0.1, 0.3, 2.0, 2.1, 1.9, 2.2, 2.3, 1.8,
+        ];
         let y = [0.0, 0.0, 0.0, 1.0, 1.0, 1.0];
         let mut m = LogisticRegression::<f64>::new(2.0);
         SupervisedEstimator::fit(&mut m, DenseView::new(&x, 6, 2).unwrap(), &y[..]).unwrap();

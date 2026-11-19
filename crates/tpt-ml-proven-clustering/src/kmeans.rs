@@ -822,7 +822,11 @@ impl<F: Float> KMeans<F> {
         let init = match r.usize()? {
             0 => Init::KMeansPlusPlus,
             1 => Init::Random,
-            _ => return Err(Error::Format { reason: "unknown k-means initialisation" }),
+            _ => {
+                return Err(Error::Format {
+                    reason: "unknown k-means initialisation",
+                })
+            }
         };
         let seed = r.u64()?;
         let threads = r.usize()?;
@@ -840,21 +844,34 @@ impl<F: Float> KMeans<F> {
             let n_iter = r.usize()?;
             let converged = r.bool()?;
             if flat.len() != rows * cols || labels.is_empty() || rows != n_clusters {
-                return Err(Error::Format { reason: "k-means model shapes are inconsistent" });
+                return Err(Error::Format {
+                    reason: "k-means model shapes are inconsistent",
+                });
             }
             if labels.iter().any(|&l| l >= n_clusters) {
-                return Err(Error::Format { reason: "k-means label is out of range" });
+                return Err(Error::Format {
+                    reason: "k-means label is out of range",
+                });
             }
             let data: Vec<F> = flat.into_iter().map(F::from_f64).collect();
-            let centers = Dense::from_vec(data, rows, cols)
-                .map_err(|_| Error::Format { reason: "k-means centres have the wrong size" })?;
-            Some(Fitted { centers, labels, inertia, n_iter, converged })
+            let centers = Dense::from_vec(data, rows, cols).map_err(|_| Error::Format {
+                reason: "k-means centres have the wrong size",
+            })?;
+            Some(Fitted {
+                centers,
+                labels,
+                inertia,
+                n_iter,
+                converged,
+            })
         } else {
             None
         };
         r.finish()?;
         if n_clusters == 0 {
-            return Err(Error::Format { reason: "k-means cluster count is zero" });
+            return Err(Error::Format {
+                reason: "k-means cluster count is zero",
+            });
         }
         Ok(Self {
             n_clusters,
@@ -876,7 +893,9 @@ mod persist_tests {
 
     #[test]
     fn fitted_kmeans_round_trips_and_predicts_the_same() {
-        let x = [0.0_f64, 0.0, 0.1, 0.0, 0.0, 0.1, 10.0, 10.0, 10.1, 10.0, 10.0, 10.1];
+        let x = [
+            0.0_f64, 0.0, 0.1, 0.0, 0.0, 0.1, 10.0, 10.0, 10.1, 10.0, 10.0, 10.1,
+        ];
         let mut km = KMeans::<f64>::new(2).with_seed(3);
         UnsupervisedEstimator::fit(&mut km, DenseView::new(&x, 6, 2).unwrap()).unwrap();
         let loaded = KMeans::<f64>::from_bytes(&km.to_bytes().unwrap()).unwrap();

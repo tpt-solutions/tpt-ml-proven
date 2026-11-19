@@ -1,0 +1,13 @@
+# Gradient boosting contract, from the Phase 10 roadmap.
+# Format and verification rules: docs/contracts/README.md
+
+contract gbm
+source crates/tpt-ml-proven-trees/src/gbm.rs
+
+requires[rows_positive]: X.rows >= 1
+requires[estimators_positive]: n_estimators >= 1
+requires[learning_rate_unit]: learning_rate > 0 && learning_rate <= 1
+
+# A boosting round never increases the training squared error. With learning_rate in (0, 1]
+# the step towards the mean residual of each leaf cannot increase a convex quadratic.
+ensures[loss_non_increasing]: train_loss(round_after) <= train_loss(round_before)

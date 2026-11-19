@@ -400,15 +400,25 @@ impl<F: Float> MulticlassLogistic<F> {
             let n_iter = r.usize()?;
             let k = classes.len();
             if k < 2 || coef.len() != k * cols || intercept.len() != k {
-                return Err(Error::Format { reason: "multiclass model shapes are inconsistent" });
+                return Err(Error::Format {
+                    reason: "multiclass model shapes are inconsistent",
+                });
             }
-            Some(Fitted { classes, coef, intercept, cols, n_iter })
+            Some(Fitted {
+                classes,
+                coef,
+                intercept,
+                cols,
+                n_iter,
+            })
         } else {
             None
         };
         r.finish()?;
         if !(c.is_finite() && c > 0.0) {
-            return Err(Error::Format { reason: "logistic C is not finite and positive" });
+            return Err(Error::Format {
+                reason: "logistic C is not finite and positive",
+            });
         }
         Ok(Self {
             c,
@@ -427,7 +437,9 @@ mod persist_tests {
 
     #[test]
     fn fitted_multiclass_model_round_trips() {
-        let x = [0.0_f64, 0.0, 0.2, 0.1, 4.0, 0.0, 4.2, 0.1, 0.0, 4.0, 0.1, 4.2];
+        let x = [
+            0.0_f64, 0.0, 0.2, 0.1, 4.0, 0.0, 4.2, 0.1, 0.0, 4.0, 0.1, 4.2,
+        ];
         let y = [0.0, 0.0, 1.0, 1.0, 2.0, 2.0];
         let mut m = MulticlassLogistic::<f64>::new(1.0);
         SupervisedEstimator::fit(&mut m, DenseView::new(&x, 6, 2).unwrap(), &y[..]).unwrap();

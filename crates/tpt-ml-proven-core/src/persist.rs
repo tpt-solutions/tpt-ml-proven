@@ -54,6 +54,10 @@ pub mod kind {
     pub const LOGISTIC: u32 = 6;
     /// `MulticlassLogistic`.
     pub const MULTICLASS_LOGISTIC: u32 = 7;
+    /// `DecisionTreeRegressor`.
+    pub const DECISION_TREE: u32 = 8;
+    /// `GradientBoostingRegressor`.
+    pub const GRADIENT_BOOSTING: u32 = 9;
 }
 
 const HEADER_LEN: usize = 16;
@@ -152,7 +156,9 @@ impl<'a> Reader<'a> {
         }
         let version = u32::from_le_bytes(bytes[8..12].try_into().expect("4 bytes"));
         if version == 0 || version > FORMAT_VERSION {
-            return Err(format_error("model file was written by a newer or unknown format version"));
+            return Err(format_error(
+                "model file was written by a newer or unknown format version",
+            ));
         }
         let kind = u32::from_le_bytes(bytes[12..16].try_into().expect("4 bytes"));
         if kind != expected_kind {
@@ -161,7 +167,9 @@ impl<'a> Reader<'a> {
         let body_end = bytes.len() - TRAILER_LEN;
         let stored = u64::from_le_bytes(bytes[body_end..].try_into().expect("8 bytes"));
         if fnv1a(&bytes[..body_end]) != stored {
-            return Err(format_error("checksum mismatch: the model file is corrupt or truncated"));
+            return Err(format_error(
+                "checksum mismatch: the model file is corrupt or truncated",
+            ));
         }
         Ok(Self {
             payload: &bytes[HEADER_LEN..body_end],
@@ -188,12 +196,16 @@ impl<'a> Reader<'a> {
 
     /// Reads a 64-bit unsigned integer.
     pub fn u64(&mut self) -> Result<u64, Error> {
-        Ok(u64::from_le_bytes(self.take(8)?.try_into().expect("8 bytes")))
+        Ok(u64::from_le_bytes(
+            self.take(8)?.try_into().expect("8 bytes"),
+        ))
     }
 
     /// Reads a value.
     pub fn f64(&mut self) -> Result<f64, Error> {
-        Ok(f64::from_le_bytes(self.take(8)?.try_into().expect("8 bytes")))
+        Ok(f64::from_le_bytes(
+            self.take(8)?.try_into().expect("8 bytes"),
+        ))
     }
 
     /// Reads a flag.
@@ -229,7 +241,9 @@ impl<'a> Reader<'a> {
         if self.pos == self.payload.len() {
             Ok(())
         } else {
-            Err(format_error("model file has bytes left after the last field"))
+            Err(format_error(
+                "model file has bytes left after the last field",
+            ))
         }
     }
 }

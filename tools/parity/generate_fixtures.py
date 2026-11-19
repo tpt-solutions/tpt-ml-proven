@@ -37,6 +37,7 @@ from sklearn.cluster import DBSCAN, HDBSCAN, KMeans
 from sklearn.linear_model import ElasticNet, Lasso, LogisticRegression, Ridge
 from sklearn.decomposition import NMF, PCA, TruncatedSVD
 from sklearn.preprocessing import MinMaxScaler, RobustScaler, StandardScaler
+from sklearn.ensemble import GradientBoostingRegressor
 
 PINNED = "1.9.0"
 OUT = Path(__file__).resolve().parent / "fixtures"
@@ -218,6 +219,28 @@ def multiclass_logistic_case(name, x, y, c):
     )
 
 
+def gbm_case(name, x, y, n_estimators, learning_rate, max_depth, min_samples_leaf):
+    model = GradientBoostingRegressor(
+        n_estimators=n_estimators,
+        learning_rate=learning_rate,
+        max_depth=max_depth,
+        min_samples_leaf=min_samples_leaf,
+        criterion="friedman_mse",
+        subsample=1.0,
+        random_state=0,
+    ).fit(x, y)
+    write(
+        name,
+        [("kind", "gbm"), ("rows", x.shape[0]), ("cols", x.shape[1]), ("n_estimators", n_estimators),
+         ("learning_rate", f"{learning_rate:.17g}"), ("max_depth", max_depth), ("min_samples_leaf", min_samples_leaf)],
+        [
+            ("x", fmt(x)),
+            ("y", fmt(y)),
+            ("pred", fmt(model.predict(x))),
+        ],
+    )
+
+
 def svd_case(name, x, k):
     model = TruncatedSVD(n_components=k, algorithm="arpack", random_state=0).fit(x)
     write(
@@ -316,6 +339,12 @@ def main():
     scores = xm @ np.array([[1.5, -1.0, 0.2], [-0.5, 1.2, 0.8]]) + 0.3 * rng8.standard_normal((90, 3))
     ym = scores.argmax(axis=1).astype(float)
     multiclass_logistic_case("logistic_multiclass_c1", xm, ym, c=1.0)
+
+    # Gradient boosting: a nonlinear target with noise. Own rng.
+    rng9 = np.random.default_rng(606)
+    xg = rng9.uniform(-3, 3, size=(120, 3))
+    yg = np.sin(xg[:, 0]) * 2 + (xg[:, 1] > 0.5) * 1.5 - 0.3 * xg[:, 2] + 0.2 * rng9.standard_normal(120)
+    gbm_case("gbm_regression", xg, yg, n_estimators=30, learning_rate=0.1, max_depth=3, min_samples_leaf=2)
 
 
 if __name__ == "__main__":

@@ -323,8 +323,18 @@ impl<F: Float> Pca<F> {
                     .map(|(r, c)| f.components.get(r, c).to_f64())
                     .collect();
                 w.f64s(&flat);
-                w.f64s(&f.explained_variance.iter().map(|v| v.to_f64()).collect::<Vec<_>>());
-                w.f64s(&f.explained_variance_ratio.iter().map(|v| v.to_f64()).collect::<Vec<_>>());
+                w.f64s(
+                    &f.explained_variance
+                        .iter()
+                        .map(|v| v.to_f64())
+                        .collect::<Vec<_>>(),
+                );
+                w.f64s(
+                    &f.explained_variance_ratio
+                        .iter()
+                        .map(|v| v.to_f64())
+                        .collect::<Vec<_>>(),
+                );
                 w.f64(f.total_variance.to_f64());
             }
         }
@@ -345,13 +355,19 @@ impl<F: Float> Pca<F> {
             let explained_variance_ratio = to_f(r.f64s()?);
             let total_variance = F::from_f64(r.f64()?);
             if flat.len() != rows * cols || rows != n_components || mean.len() != cols {
-                return Err(Error::Format { reason: "pca model shapes are inconsistent" });
+                return Err(Error::Format {
+                    reason: "pca model shapes are inconsistent",
+                });
             }
             if explained_variance.len() != rows || explained_variance_ratio.len() != rows {
-                return Err(Error::Format { reason: "pca variance lengths are inconsistent" });
+                return Err(Error::Format {
+                    reason: "pca variance lengths are inconsistent",
+                });
             }
-            let components = Dense::from_vec(to_f(flat), rows, cols)
-                .map_err(|_| Error::Format { reason: "pca components have the wrong size" })?;
+            let components =
+                Dense::from_vec(to_f(flat), rows, cols).map_err(|_| Error::Format {
+                    reason: "pca components have the wrong size",
+                })?;
             Some(Fitted {
                 mean,
                 components,
@@ -363,7 +379,10 @@ impl<F: Float> Pca<F> {
             None
         };
         r.finish()?;
-        Ok(Self { n_components, fitted })
+        Ok(Self {
+            n_components,
+            fitted,
+        })
     }
 }
 

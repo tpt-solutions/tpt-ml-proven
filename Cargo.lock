@@ -44,3 +44,10 @@ version = "0.0.0"
 dependencies = [
  "tpt-ml-proven-core",
 ]
+
+[[package]]
+name = "tpt-ml-proven-trees"
+version = "0.0.0"
+dependencies = [
+ "tpt-ml-proven-core",
+]

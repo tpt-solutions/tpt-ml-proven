@@ -1,0 +1,16 @@
+# Decision tree contract, from the Phase 10 roadmap.
+# Format and verification rules: docs/contracts/README.md
+
+contract tree
+source crates/tpt-ml-proven-trees/src/tree.rs
+
+requires[rows_positive]: X.rows >= 1
+requires[max_depth_positive]: max_depth >= 1
+requires[min_samples_leaf_positive]: min_samples_leaf >= 1
+
+# The leaves of a grown tree hold every training row exactly once. Uninterpreted, so checked
+# at runtime and by the invariant tests.
+ensures[leaves_partition_rows]: leaf_total(tree) == X.rows
+
+# No path from the root is longer than max_depth.
+ensures[depth_bounded]: depth_of(tree) <= max_depth
