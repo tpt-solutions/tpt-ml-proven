@@ -89,6 +89,8 @@ pub mod kind {
     pub const ORDINAL_ENCODER: u32 = 17;
     /// `SimpleImputer`.
     pub const SIMPLE_IMPUTER: u32 = 18;
+    /// `DecisionTreeClassifier`.
+    pub const DECISION_TREE_CLASSIFIER: u32 = 19;
 }
 
 /// Header length of a version 1 file: magic, version, kind.

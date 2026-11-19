@@ -38,6 +38,7 @@ from sklearn.linear_model import ElasticNet, Lasso, LogisticRegression, Ridge
 from sklearn.decomposition import NMF, PCA, TruncatedSVD
 from sklearn.preprocessing import MinMaxScaler, RobustScaler, StandardScaler
 from sklearn.ensemble import GradientBoostingRegressor
+from sklearn.tree import DecisionTreeClassifier
 
 PINNED = "1.9.0"
 OUT = Path(__file__).resolve().parent / "fixtures"
@@ -254,6 +255,27 @@ def svd_case(name, x, k):
     )
 
 
+def tree_classifier_case(name, x, y, max_depth, min_samples_leaf, criterion):
+    model = DecisionTreeClassifier(
+        max_depth=max_depth,
+        min_samples_leaf=min_samples_leaf,
+        criterion=criterion,
+        random_state=0,
+    ).fit(x, y)
+    write(
+        name,
+        [("kind", "tree_classifier"), ("rows", x.shape[0]), ("cols", x.shape[1]),
+         ("max_depth", max_depth), ("min_samples_leaf", min_samples_leaf), ("criterion", criterion)],
+        [
+            ("x", fmt(x)),
+            ("y", fmt(y)),
+            ("pred", fmt(model.predict(x))),
+            ("n_leaves", model.get_n_leaves()),
+            ("depth", model.get_depth()),
+        ],
+    )
+
+
 def main():
     if sklearn.__version__ != PINNED:
         raise SystemExit(
@@ -345,6 +367,14 @@ def main():
     xg = rng9.uniform(-3, 3, size=(120, 3))
     yg = np.sin(xg[:, 0]) * 2 + (xg[:, 1] > 0.5) * 1.5 - 0.3 * xg[:, 2] + 0.2 * rng9.standard_normal(120)
     gbm_case("gbm_regression", xg, yg, n_estimators=30, learning_rate=0.1, max_depth=3, min_samples_leaf=2)
+
+    # Classification trees: three classes from noisy scores, Gini and entropy. Own rng.
+    rng10 = np.random.default_rng(31337)
+    xt = rng10.uniform(-2, 2, size=(100, 2))
+    st = xt[:, 0] * 1.2 - xt[:, 1] * 0.8 + 0.25 * rng10.standard_normal(100)
+    yt = np.digitize(st, [-0.6, 0.6]).astype(float)
+    tree_classifier_case("tree_classifier_gini", xt, yt, max_depth=3, min_samples_leaf=2, criterion="gini")
+    tree_classifier_case("tree_classifier_entropy", xt, yt, max_depth=3, min_samples_leaf=2, criterion="entropy")
 
 
 if __name__ == "__main__":

@@ -9,6 +9,7 @@
 use tpt_ml_proven_core::error::Error;
 use tpt_ml_proven_core::persist::{dtype, kind, Reader, Writer};
 
+use crate::classifier::{Criterion, DecisionTreeClassifier, Fitted};
 use crate::gbm::{Boosted, DecisionTreeRegressor, GradientBoostingRegressor};
 use crate::tree::{Node, Tree};
 
@@ -201,6 +202,71 @@ impl GradientBoostingRegressor {
             min_samples_leaf,
             boosted,
         ))
+    }
+}
+
+// ---------------------------------------------------------------- classifier
+
+impl DecisionTreeClassifier {
+    /// Serialises the classifier (settings and fitted tree) to a model file.
+    pub fn to_bytes(&self) -> Result<Vec<u8>, Error> {
+        let mut w = Writer::for_float::<f64>(kind::DECISION_TREE_CLASSIFIER);
+        w.usize(self.max_depth);
+        w.usize(self.min_samples_leaf);
+        w.bool(self.criterion == Criterion::Entropy);
+        match &self.fitted {
+            None => w.bool(false),
+            Some(f) => {
+                w.bool(true);
+                w.f64s(&f.classes);
+                write_tree(&mut w, &f.tree);
+            }
+        }
+        Ok(w.finish())
+    }
+
+    /// Loads a classifier written by [`DecisionTreeClassifier::to_bytes`]. Checks the settings,
+    /// that the class labels are sorted and distinct, and that every leaf predicts one of them.
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, Error> {
+        let mut r = Reader::new(bytes, kind::DECISION_TREE_CLASSIFIER)?;
+        let max_depth = r.usize()?;
+        let min_samples_leaf = r.usize()?;
+        let criterion = if r.bool()? {
+            Criterion::Entropy
+        } else {
+            Criterion::Gini
+        };
+        let fitted = if r.bool()? {
+            let classes = r.f64s()?;
+            let tree = read_tree(&mut r)?;
+            Some(Fitted { tree, classes })
+        } else {
+            None
+        };
+        r.finish()?;
+        if max_depth == 0 || min_samples_leaf == 0 {
+            return Err(invalid("classifier depth and leaf size must be at least 1"));
+        }
+        if let Some(f) = &fitted {
+            if f.classes.is_empty() || f.classes.windows(2).any(|w| w[0] >= w[1]) {
+                return Err(invalid("classifier classes are not sorted and distinct"));
+            }
+            let known = f.tree.nodes.iter().all(|n| match n {
+                Node::Leaf { value, .. } => f.classes.contains(value),
+                Node::Split { .. } => true,
+            });
+            if !known {
+                return Err(invalid(
+                    "a classifier leaf predicts a label that was never seen",
+                ));
+            }
+        }
+        Ok(Self {
+            max_depth,
+            min_samples_leaf,
+            criterion,
+            fitted,
+        })
     }
 }
 
