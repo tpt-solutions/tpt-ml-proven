@@ -1,0 +1,18 @@
+cff-version: 1.2.0
+message: "If you use tpt-ml-proven in research, please cite it using the metadata below."
+title: "tpt-ml-proven"
+type: software
+abstract: >-
+  Machine-learning estimators whose contracts are checked by a solver and by runtime
+  assertions, with scikit-learn parity tests and a versioned model file format.
+authors:
+  - name: "TPT Solutions"
+repository-code: "https://github.com/tpt-solutions/tpt-ml-proven"
+keywords:
+  - machine learning
+  - scikit-learn
+  - formal verification
+  - contracts
+  - Rust
+# Release metadata is added when the first version is tagged (todo.md, Phase 7).
+# The licence is dual MIT OR Apache-2.0; see LICENSE-MIT and LICENSE-APACHE.
