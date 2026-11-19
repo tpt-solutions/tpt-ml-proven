@@ -124,7 +124,7 @@ Dependency rule: runtime deps must be MIT, MIT/Apache-2.0 dual, BSD, ISC, Zlib, 
 **Done when:** v0.1.0 is installable from crates.io, PyPI and via `go get`.
 
 ## Phase 8 — Roadmap: remaining algorithms
-Each item gets: crate code, `.tptc` contract, scikit-learn parity fixtures, FFI exposure, tests. Done so far: crate code, parity fixtures and tests, and `.tptc` contracts with runtime checks. Not yet: FFI exposure for these algorithms.
+Each item gets: crate code, `.tptc` contract, scikit-learn parity fixtures, FFI exposure, tests. Done so far: crate code, parity fixtures and tests, and `.tptc` contracts with runtime checks. FFI: Python, WASM and C expose these, except Lasso and ElasticNet in C. Go is not yet written.
 
 ### Clustering
 - [x] DBSCAN — exact label parity with scikit-learn (`dbscan_blobs_noise`)
