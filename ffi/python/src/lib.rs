@@ -552,7 +552,7 @@ impl PyPca {
 }
 
 #[pymodule]
-fn tpt_ml_proven(m: &Bound<'_, PyModule>) -> PyResult<()> {
+fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyKMeans>()?;
     m.add_class::<PyPca>()?;
     m.add_class::<PyDbscan>()?;

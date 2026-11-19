@@ -2,7 +2,7 @@
 # toolchain never enters the runtime build of the library crates.
 [package]
 name = "tpt-ml-proven-py"
-description = "Python bindings for tpt-ml-proven (KMeans, PCA)."
+description = "Python bindings for tpt-ml-proven: clustering, decomposition, linear models and ensembles."
 version = "0.0.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
@@ -12,7 +12,7 @@ publish = false
 [workspace]
 
 [lib]
-name = "tpt_ml_proven"
+name = "_native"
 crate-type = ["cdylib"]
 
 [dependencies]
