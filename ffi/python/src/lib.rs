@@ -76,6 +76,41 @@ pub(crate) fn repr_of(name: &str, params: &Bound<'_, PyDict>) -> PyResult<String
     Ok(format!("{name}({})", parts.join(", ")))
 }
 
+/// scikit-learn's estimator tags for a kind of estimator: "regressor", "classifier",
+/// "clusterer" or "transformer". Built only when scikit-learn asks for them, so the package
+/// does not depend on scikit-learn at run time.
+pub(crate) fn sklearn_tags<'py>(py: Python<'py>, kind: &str) -> PyResult<Bound<'py, PyAny>> {
+    let utils = py.import("sklearn.utils")?;
+    let kwargs = PyDict::new(py);
+    let target_kwargs = PyDict::new(py);
+    target_kwargs.set_item("required", matches!(kind, "regressor" | "classifier"))?;
+    let target_tags = utils
+        .getattr("TargetTags")?
+        .call((), Some(&target_kwargs))?;
+    kwargs.set_item("target_tags", target_tags)?;
+    match kind {
+        "regressor" => {
+            kwargs.set_item("estimator_type", "regressor")?;
+            kwargs.set_item("regressor_tags", utils.getattr("RegressorTags")?.call0()?)?;
+        }
+        "classifier" => {
+            kwargs.set_item("estimator_type", "classifier")?;
+            kwargs.set_item("classifier_tags", utils.getattr("ClassifierTags")?.call0()?)?;
+        }
+        "clusterer" => {
+            kwargs.set_item("estimator_type", "clusterer")?;
+        }
+        _ => {
+            kwargs.set_item("estimator_type", py.None())?;
+            kwargs.set_item(
+                "transformer_tags",
+                utils.getattr("TransformerTags")?.call0()?,
+            )?;
+        }
+    }
+    utils.getattr("Tags")?.call((), Some(&kwargs))
+}
+
 fn to_py_err(e: Error) -> PyErr {
     match e {
         Error::NotFitted => PyRuntimeError::new_err(e.to_string()),
@@ -253,7 +288,7 @@ enum KState {
 ///
 /// `init` is `"k-means++"` (default) or `"random"`. `threads` sets the worker count for
 /// the assignment and update steps. Results do not depend on it.
-#[pyclass(name = "KMeans", module = "tpt_ml_proven")]
+#[pyclass(name = "KMeans", module = "tpt_ml_proven", dict)]
 pub struct PyKMeans {
     params: KMeansParams,
     fitted: Option<KState>,
@@ -329,8 +364,20 @@ impl PyKMeans {
 
 #[pymethods]
 impl PyKMeans {
+    /// scikit-learn's fitted check: true once `fit` has succeeded.
+    fn __sklearn_is_fitted__(&self) -> bool {
+        self.fitted.is_some()
+    }
+
+    /// scikit-learn's tags protocol: what kind of estimator this is.
+    fn __sklearn_tags__<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        sklearn_tags(py, "clusterer")
+    }
+
     /// The constructor parameters, by name.
-    fn get_params<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
+    #[pyo3(signature = (deep=true))]
+    #[allow(unused_variables)]
+    fn get_params<'py>(&self, py: Python<'py>, deep: bool) -> PyResult<Bound<'py, PyDict>> {
         let d = PyDict::new(py);
         d.set_item("n_clusters", self.params.n_clusters)?;
         d.set_item("max_iter", self.params.max_iter)?;
@@ -370,8 +417,14 @@ impl PyKMeans {
         Ok(slf)
     }
 
+    /// scikit-learn's clone protocol: a new, unfitted estimator with the same parameters.
+    fn __sklearn_clone__<'py>(slf: &Bound<'py, Self>) -> PyResult<Bound<'py, PyAny>> {
+        let params = slf.borrow().get_params(slf.py(), false)?;
+        slf.get_type().call((), Some(&params))
+    }
+
     fn __repr__(&self, py: Python<'_>) -> PyResult<String> {
-        repr_of("KMeans", &self.get_params(py)?)
+        repr_of("KMeans", &self.get_params(py, false)?)
     }
 
     /// Fits, then returns the cluster of each row. Equivalent to `fit(X).predict(X)`.
@@ -447,10 +500,13 @@ impl PyKMeans {
 
     /// Fits to a 2-D `float32` or `float64` array and returns the estimator, so calls
     /// can be chained. Releases the GIL while fitting.
+    #[pyo3(signature = (x, y=None))]
+    #[allow(unused_variables)]
     fn fit<'py>(
         slf: Bound<'py, Self>,
         py: Python<'py>,
         x: &Bound<'py, PyAny>,
+        y: Option<&Bound<'py, PyAny>>,
     ) -> PyResult<Bound<'py, Self>> {
         slf.borrow_mut().fit_impl(py, x)?;
         Ok(slf)
@@ -554,7 +610,7 @@ enum PState {
 }
 
 /// Principal component analysis.
-#[pyclass(name = "PCA", module = "tpt_ml_proven")]
+#[pyclass(name = "PCA", module = "tpt_ml_proven", dict)]
 pub struct PyPca {
     n_components: usize,
     fitted: Option<PState>,
@@ -620,8 +676,20 @@ impl PyPca {
 
 #[pymethods]
 impl PyPca {
+    /// scikit-learn's fitted check: true once `fit` has succeeded.
+    fn __sklearn_is_fitted__(&self) -> bool {
+        self.fitted.is_some()
+    }
+
+    /// scikit-learn's tags protocol: what kind of estimator this is.
+    fn __sklearn_tags__<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        sklearn_tags(py, "transformer")
+    }
+
     /// The constructor parameters, by name.
-    fn get_params<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
+    #[pyo3(signature = (deep=true))]
+    #[allow(unused_variables)]
+    fn get_params<'py>(&self, py: Python<'py>, deep: bool) -> PyResult<Bound<'py, PyDict>> {
         let d = PyDict::new(py);
         d.set_item("n_components", self.n_components)?;
         Ok(d)
@@ -651,8 +719,14 @@ impl PyPca {
         Ok(slf)
     }
 
+    /// scikit-learn's clone protocol: a new, unfitted estimator with the same parameters.
+    fn __sklearn_clone__<'py>(slf: &Bound<'py, Self>) -> PyResult<Bound<'py, PyAny>> {
+        let params = slf.borrow().get_params(slf.py(), false)?;
+        slf.get_type().call((), Some(&params))
+    }
+
     fn __repr__(&self, py: Python<'_>) -> PyResult<String> {
-        repr_of("PCA", &self.get_params(py)?)
+        repr_of("PCA", &self.get_params(py, false)?)
     }
 
     /// Serialises the fitted model to bytes, in the tpt-ml-proven model file format.
@@ -698,10 +772,13 @@ impl PyPca {
 
     /// Fits to a 2-D `float32` or `float64` array and returns the estimator, so calls
     /// can be chained. Releases the GIL while fitting.
+    #[pyo3(signature = (x, y=None))]
+    #[allow(unused_variables)]
     fn fit<'py>(
         slf: Bound<'py, Self>,
         py: Python<'py>,
         x: &Bound<'py, PyAny>,
+        y: Option<&Bound<'py, PyAny>>,
     ) -> PyResult<Bound<'py, Self>> {
         slf.borrow_mut().fit_impl(py, x)?;
         Ok(slf)

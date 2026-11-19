@@ -5,7 +5,7 @@
 //! into `f64` before fitting, so a `float32` array gives the same result as its `float64`
 //! copy. The copy is made while the GIL is held, and fitting runs without it.
 
-use crate::repr_of;
+use crate::{repr_of, sklearn_tags};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::{PyAny, PyBytes, PyDict};
@@ -41,7 +41,7 @@ fn read_targets(y: Vec<f64>, rows: usize) -> PyResult<Vec<f64>> {
 // ---------------------------------------------------------------- DBSCAN
 
 /// Density-based clustering. Noise samples get label `-1`.
-#[pyclass(name = "DBSCAN", module = "tpt_ml_proven")]
+#[pyclass(name = "DBSCAN", module = "tpt_ml_proven", dict)]
 pub struct PyDbscan {
     eps: f64,
     min_samples: usize,
@@ -50,8 +50,20 @@ pub struct PyDbscan {
 
 #[pymethods]
 impl PyDbscan {
+    /// scikit-learn's fitted check: true once `fit` has succeeded.
+    fn __sklearn_is_fitted__(&self) -> bool {
+        self.fitted.is_some()
+    }
+
+    /// scikit-learn's tags protocol: what kind of estimator this is.
+    fn __sklearn_tags__<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        sklearn_tags(py, "clusterer")
+    }
+
     /// The constructor parameters, by name.
-    fn get_params<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
+    #[pyo3(signature = (deep=true))]
+    #[allow(unused_variables)]
+    fn get_params<'py>(&self, py: Python<'py>, deep: bool) -> PyResult<Bound<'py, PyDict>> {
         let d = PyDict::new(py);
         d.set_item("eps", self.eps)?;
         d.set_item("min_samples", self.min_samples)?;
@@ -83,8 +95,14 @@ impl PyDbscan {
         Ok(slf)
     }
 
+    /// scikit-learn's clone protocol: a new, unfitted estimator with the same parameters.
+    fn __sklearn_clone__<'py>(slf: &Bound<'py, Self>) -> PyResult<Bound<'py, PyAny>> {
+        let params = slf.borrow().get_params(slf.py(), false)?;
+        slf.get_type().call((), Some(&params))
+    }
+
     fn __repr__(&self, py: Python<'_>) -> PyResult<String> {
-        repr_of("DBSCAN", &self.get_params(py)?)
+        repr_of("DBSCAN", &self.get_params(py, false)?)
     }
 
     #[new]
@@ -134,7 +152,7 @@ impl PyDbscan {
 // ---------------------------------------------------------------- HDBSCAN
 
 /// Hierarchical density-based clustering with excess-of-mass selection.
-#[pyclass(name = "HDBSCAN", module = "tpt_ml_proven")]
+#[pyclass(name = "HDBSCAN", module = "tpt_ml_proven", dict)]
 pub struct PyHdbscan {
     min_cluster_size: usize,
     min_samples: Option<usize>,
@@ -143,8 +161,20 @@ pub struct PyHdbscan {
 
 #[pymethods]
 impl PyHdbscan {
+    /// scikit-learn's fitted check: true once `fit` has succeeded.
+    fn __sklearn_is_fitted__(&self) -> bool {
+        self.fitted.is_some()
+    }
+
+    /// scikit-learn's tags protocol: what kind of estimator this is.
+    fn __sklearn_tags__<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        sklearn_tags(py, "clusterer")
+    }
+
     /// The constructor parameters, by name.
-    fn get_params<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
+    #[pyo3(signature = (deep=true))]
+    #[allow(unused_variables)]
+    fn get_params<'py>(&self, py: Python<'py>, deep: bool) -> PyResult<Bound<'py, PyDict>> {
         let d = PyDict::new(py);
         d.set_item("min_cluster_size", self.min_cluster_size)?;
         d.set_item("min_samples", self.min_samples)?;
@@ -176,8 +206,14 @@ impl PyHdbscan {
         Ok(slf)
     }
 
+    /// scikit-learn's clone protocol: a new, unfitted estimator with the same parameters.
+    fn __sklearn_clone__<'py>(slf: &Bound<'py, Self>) -> PyResult<Bound<'py, PyAny>> {
+        let params = slf.borrow().get_params(slf.py(), false)?;
+        slf.get_type().call((), Some(&params))
+    }
+
     fn __repr__(&self, py: Python<'_>) -> PyResult<String> {
-        repr_of("HDBSCAN", &self.get_params(py)?)
+        repr_of("HDBSCAN", &self.get_params(py, false)?)
     }
 
     #[new]
@@ -224,7 +260,7 @@ impl PyHdbscan {
 // ---------------------------------------------------------------- TruncatedSVD
 
 /// Truncated singular value decomposition (dense input, no centring).
-#[pyclass(name = "TruncatedSVD", module = "tpt_ml_proven")]
+#[pyclass(name = "TruncatedSVD", module = "tpt_ml_proven", dict)]
 pub struct PyTruncatedSvd {
     n_components: usize,
     fitted: Option<TruncatedSvd<f64>>,
@@ -250,8 +286,20 @@ impl PyTruncatedSvd {
 
 #[pymethods]
 impl PyTruncatedSvd {
+    /// scikit-learn's fitted check: true once `fit` has succeeded.
+    fn __sklearn_is_fitted__(&self) -> bool {
+        self.fitted.is_some()
+    }
+
+    /// scikit-learn's tags protocol: what kind of estimator this is.
+    fn __sklearn_tags__<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        sklearn_tags(py, "transformer")
+    }
+
     /// The constructor parameters, by name.
-    fn get_params<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
+    #[pyo3(signature = (deep=true))]
+    #[allow(unused_variables)]
+    fn get_params<'py>(&self, py: Python<'py>, deep: bool) -> PyResult<Bound<'py, PyDict>> {
         let d = PyDict::new(py);
         d.set_item("n_components", self.n_components)?;
         Ok(d)
@@ -281,8 +329,14 @@ impl PyTruncatedSvd {
         Ok(slf)
     }
 
+    /// scikit-learn's clone protocol: a new, unfitted estimator with the same parameters.
+    fn __sklearn_clone__<'py>(slf: &Bound<'py, Self>) -> PyResult<Bound<'py, PyAny>> {
+        let params = slf.borrow().get_params(slf.py(), false)?;
+        slf.get_type().call((), Some(&params))
+    }
+
     fn __repr__(&self, py: Python<'_>) -> PyResult<String> {
-        repr_of("TruncatedSVD", &self.get_params(py)?)
+        repr_of("TruncatedSVD", &self.get_params(py, false)?)
     }
 
     /// Serialises the fitted model to bytes, in the tpt-ml-proven model file format.
@@ -371,7 +425,7 @@ impl PyTruncatedSvd {
 // ---------------------------------------------------------------- NMF
 
 /// Non-negative matrix factorisation with Frobenius loss and multiplicative updates.
-#[pyclass(name = "NMF", module = "tpt_ml_proven")]
+#[pyclass(name = "NMF", module = "tpt_ml_proven", dict)]
 pub struct PyNmf {
     n_components: usize,
     max_iter: usize,
@@ -403,8 +457,20 @@ impl PyNmf {
 
 #[pymethods]
 impl PyNmf {
+    /// scikit-learn's fitted check: true once `fit` has succeeded.
+    fn __sklearn_is_fitted__(&self) -> bool {
+        self.fitted.is_some()
+    }
+
+    /// scikit-learn's tags protocol: what kind of estimator this is.
+    fn __sklearn_tags__<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        sklearn_tags(py, "transformer")
+    }
+
     /// The constructor parameters, by name.
-    fn get_params<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
+    #[pyo3(signature = (deep=true))]
+    #[allow(unused_variables)]
+    fn get_params<'py>(&self, py: Python<'py>, deep: bool) -> PyResult<Bound<'py, PyDict>> {
         let d = PyDict::new(py);
         d.set_item("n_components", self.n_components)?;
         d.set_item("max_iter", self.max_iter)?;
@@ -440,8 +506,14 @@ impl PyNmf {
         Ok(slf)
     }
 
+    /// scikit-learn's clone protocol: a new, unfitted estimator with the same parameters.
+    fn __sklearn_clone__<'py>(slf: &Bound<'py, Self>) -> PyResult<Bound<'py, PyAny>> {
+        let params = slf.borrow().get_params(slf.py(), false)?;
+        slf.get_type().call((), Some(&params))
+    }
+
     fn __repr__(&self, py: Python<'_>) -> PyResult<String> {
-        repr_of("NMF", &self.get_params(py)?)
+        repr_of("NMF", &self.get_params(py, false)?)
     }
 
     /// Serialises the fitted model to bytes, in the tpt-ml-proven model file format.
@@ -558,7 +630,7 @@ impl PyNmf {
 macro_rules! regression_class {
     ($py_name:literal, $rust_ty:ident, $ident:ident, $($field:ident : $ty:ty),* ; $build:expr ; $from:expr ; $ctor:item) => {
         #[doc = concat!($py_name, " regression, fitted in f64.")]
-        #[pyclass(name = $py_name, module = "tpt_ml_proven")]
+        #[pyclass(name = $py_name, module = "tpt_ml_proven", dict)]
         pub struct $ident {
             $($field: $ty,)*
             fitted: Option<$rust_ty<f64>>,
@@ -580,8 +652,20 @@ macro_rules! regression_class {
         impl $ident {
             $ctor
 
+            /// scikit-learn's fitted check: true once `fit` has succeeded.
+            fn __sklearn_is_fitted__(&self) -> bool {
+                self.fitted.is_some()
+            }
+
+            /// scikit-learn's tags protocol: a regressor.
+            fn __sklearn_tags__<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+                sklearn_tags(py, "regressor")
+            }
+
             /// The constructor parameters, by name.
-            fn get_params<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
+            #[pyo3(signature = (deep=true))]
+    #[allow(unused_variables)]
+    fn get_params<'py>(&self, py: Python<'py>, deep: bool) -> PyResult<Bound<'py, PyDict>> {
                 let d = PyDict::new(py);
                 $( d.set_item(stringify!($field), self.$field)?; )*
                 Ok(d)
@@ -613,8 +697,14 @@ macro_rules! regression_class {
                 Ok(slf)
             }
 
-            fn __repr__(&self, py: Python<'_>) -> PyResult<String> {
-                repr_of($py_name, &self.get_params(py)?)
+            /// scikit-learn's clone protocol: a new, unfitted estimator with the same parameters.
+    fn __sklearn_clone__<'py>(slf: &Bound<'py, Self>) -> PyResult<Bound<'py, PyAny>> {
+        let params = slf.borrow().get_params(slf.py(), false)?;
+        slf.get_type().call((), Some(&params))
+    }
+
+    fn __repr__(&self, py: Python<'_>) -> PyResult<String> {
+                repr_of($py_name, &self.get_params(py, false)?)
             }
 
             /// Coefficient of determination R² of the predictions for `x` against `y`.
@@ -761,7 +851,7 @@ enum LogitState {
 
 /// Logistic regression for two or more classes (`C` is the inverse regularisation
 /// strength, as in scikit-learn). With two classes it is binary; otherwise multinomial.
-#[pyclass(name = "LogisticRegression", module = "tpt_ml_proven")]
+#[pyclass(name = "LogisticRegression", module = "tpt_ml_proven", dict)]
 pub struct PyLogisticRegression {
     c: f64,
     max_iter: usize,
@@ -771,8 +861,20 @@ pub struct PyLogisticRegression {
 
 #[pymethods]
 impl PyLogisticRegression {
+    /// scikit-learn's fitted check: true once `fit` has succeeded.
+    fn __sklearn_is_fitted__(&self) -> bool {
+        self.fitted.is_some()
+    }
+
+    /// scikit-learn's tags protocol: what kind of estimator this is.
+    fn __sklearn_tags__<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        sklearn_tags(py, "classifier")
+    }
+
     /// The constructor parameters, by name.
-    fn get_params<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
+    #[pyo3(signature = (deep=true))]
+    #[allow(unused_variables)]
+    fn get_params<'py>(&self, py: Python<'py>, deep: bool) -> PyResult<Bound<'py, PyDict>> {
         let d = PyDict::new(py);
         d.set_item("C", self.c)?;
         d.set_item("max_iter", self.max_iter)?;
@@ -806,8 +908,14 @@ impl PyLogisticRegression {
         Ok(slf)
     }
 
+    /// scikit-learn's clone protocol: a new, unfitted estimator with the same parameters.
+    fn __sklearn_clone__<'py>(slf: &Bound<'py, Self>) -> PyResult<Bound<'py, PyAny>> {
+        let params = slf.borrow().get_params(slf.py(), false)?;
+        slf.get_type().call((), Some(&params))
+    }
+
     fn __repr__(&self, py: Python<'_>) -> PyResult<String> {
-        repr_of("LogisticRegression", &self.get_params(py)?)
+        repr_of("LogisticRegression", &self.get_params(py, false)?)
     }
 
     /// Fraction of rows of `x` whose predicted label equals the label in `y`.
@@ -923,7 +1031,7 @@ impl PyLogisticRegression {
 // ---------------------------------------------------------------- stump forest
 
 /// Bagged depth-one classification trees with a majority vote.
-#[pyclass(name = "StumpForest", module = "tpt_ml_proven")]
+#[pyclass(name = "StumpForest", module = "tpt_ml_proven", dict)]
 pub struct PyStumpForest {
     n_estimators: usize,
     seed: u64,
@@ -951,8 +1059,20 @@ impl PyStumpForest {
 
 #[pymethods]
 impl PyStumpForest {
+    /// scikit-learn's fitted check: true once `fit` has succeeded.
+    fn __sklearn_is_fitted__(&self) -> bool {
+        self.fitted.is_some()
+    }
+
+    /// scikit-learn's tags protocol: what kind of estimator this is.
+    fn __sklearn_tags__<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        sklearn_tags(py, "classifier")
+    }
+
     /// The constructor parameters, by name.
-    fn get_params<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
+    #[pyo3(signature = (deep=true))]
+    #[allow(unused_variables)]
+    fn get_params<'py>(&self, py: Python<'py>, deep: bool) -> PyResult<Bound<'py, PyDict>> {
         let d = PyDict::new(py);
         d.set_item("n_estimators", self.n_estimators)?;
         d.set_item("seed", self.seed)?;
@@ -984,8 +1104,14 @@ impl PyStumpForest {
         Ok(slf)
     }
 
+    /// scikit-learn's clone protocol: a new, unfitted estimator with the same parameters.
+    fn __sklearn_clone__<'py>(slf: &Bound<'py, Self>) -> PyResult<Bound<'py, PyAny>> {
+        let params = slf.borrow().get_params(slf.py(), false)?;
+        slf.get_type().call((), Some(&params))
+    }
+
     fn __repr__(&self, py: Python<'_>) -> PyResult<String> {
-        repr_of("StumpForest", &self.get_params(py)?)
+        repr_of("StumpForest", &self.get_params(py, false)?)
     }
 
     /// Fraction of rows of `x` whose predicted label equals the label in `y`.
