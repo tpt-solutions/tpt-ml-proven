@@ -22,10 +22,12 @@
 //! Computation is in `f64`. Trees are built in O(n · cols · log n) per level.
 
 mod classifier;
+mod forest;
 mod gbm;
 mod persist;
 mod tree;
 
 pub use classifier::{Criterion, DecisionTreeClassifier};
+pub use forest::{RandomForestClassifier, RandomForestRegressor};
 pub use gbm::{DecisionTreeRegressor, GradientBoostingRegressor};
 pub use tree::Tree;

@@ -14,7 +14,9 @@ use tpt_ml_proven_core::{
     ensures, requires, ArrayView, Predictor, SupervisedEstimator, TargetView,
 };
 
-use crate::tree::{Limits, Node, Tree};
+use tpt_ml_proven_core::rng::SplitMix64;
+
+use crate::tree::{choose_features, Limits, Node, Tree};
 
 /// How a node's impurity is measured.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -173,24 +175,17 @@ impl SupervisedEstimator for DecisionTreeClassifier {
         let limits = Limits {
             max_depth: self.max_depth,
             min_samples_leaf: self.min_samples_leaf,
+            max_features: usize::MAX,
         };
-        let mut nodes = Vec::new();
-        let mut depth = 0;
-        let grow_ctx = Grow {
-            data: &data,
+        let tree = grow_classification_tree(
+            &data,
             cols,
-            class_of: &class_of,
-            classes: &classes,
-            n_classes: classes.len(),
+            &class_of,
+            &classes,
             limits,
-            criterion: self.criterion,
-        };
-        grow(&grow_ctx, (0..rows).collect(), 0, &mut nodes, &mut depth);
-        let tree = Tree {
-            nodes,
-            n_features: cols,
-            depth,
-        };
+            self.criterion,
+            &mut SplitMix64::new(0),
+        );
 
         ensures!(
             tree.leaf_count_total() == rows,
@@ -287,9 +282,48 @@ fn majority(counts: &[usize]) -> usize {
     best
 }
 
+/// Grows one classification tree over `data` (`rows × cols`), whose rows have class indices
+/// `class_of` into the sorted `classes`. At each node only `limits.max_features` features are
+/// candidates, drawn from `rng`.
+pub(crate) fn grow_classification_tree(
+    data: &[f64],
+    cols: usize,
+    class_of: &[usize],
+    classes: &[f64],
+    limits: Limits,
+    criterion: Criterion,
+    rng: &mut SplitMix64,
+) -> Tree {
+    let ctx = Grow {
+        data,
+        cols,
+        class_of,
+        classes,
+        n_classes: classes.len(),
+        limits,
+        criterion,
+    };
+    let mut nodes = Vec::new();
+    let mut depth = 0;
+    grow(
+        &ctx,
+        rng,
+        (0..class_of.len()).collect(),
+        0,
+        &mut nodes,
+        &mut depth,
+    );
+    Tree {
+        nodes,
+        n_features: cols,
+        depth,
+    }
+}
+
 /// Grows the subtree for `idx` and returns the index of its root in `nodes`.
 fn grow(
     ctx: &Grow<'_>,
+    rng: &mut SplitMix64,
     idx: Vec<usize>,
     depth: usize,
     nodes: &mut Vec<Node>,
@@ -308,7 +342,8 @@ fn grow(
         && n >= 2 * ctx.limits.min_samples_leaf
         && parent > 1e-12 * n as f64;
     let split = if can_split {
-        best_split(ctx, &idx, parent)
+        let features = choose_features(ctx.cols, ctx.limits.max_features, rng);
+        best_split(ctx, &idx, parent, &features)
     } else {
         None
     };
@@ -323,8 +358,8 @@ fn grow(
         .partition(|&i| ctx.data[i * ctx.cols + feature] <= threshold);
     let at = nodes.len();
     nodes.push(leaf);
-    let left = grow(ctx, left_idx, depth + 1, nodes, max_depth_seen);
-    let right = grow(ctx, right_idx, depth + 1, nodes, max_depth_seen);
+    let left = grow(ctx, rng, left_idx, depth + 1, nodes, max_depth_seen);
+    let right = grow(ctx, rng, right_idx, depth + 1, nodes, max_depth_seen);
     nodes[at] = Node::Split {
         feature,
         threshold,
@@ -337,12 +372,17 @@ fn grow(
 
 /// The `(feature, threshold)` whose two children have the least weighted impurity, provided
 /// that does not exceed the unsplit node's. `None` if no valid split exists.
-fn best_split(ctx: &Grow<'_>, idx: &[usize], parent: f64) -> Option<(usize, f64)> {
+fn best_split(
+    ctx: &Grow<'_>,
+    idx: &[usize],
+    parent: f64,
+    features: &[usize],
+) -> Option<(usize, f64)> {
     let n = idx.len();
     let total = class_counts(ctx, idx);
     let mut best_score = f64::INFINITY;
     let mut best: Option<(usize, f64)> = None;
-    for feature in 0..ctx.cols {
+    for &feature in features {
         let mut order = idx.to_vec();
         order.sort_by(|&a, &b| {
             ctx.data[a * ctx.cols + feature].total_cmp(&ctx.data[b * ctx.cols + feature])

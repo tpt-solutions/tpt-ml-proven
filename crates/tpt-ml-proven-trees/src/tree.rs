@@ -9,6 +9,7 @@
 //! chooses it. A leaf predicts the mean of its targets.
 
 use tpt_ml_proven_core::error::Error;
+use tpt_ml_proven_core::rng::SplitMix64;
 use tpt_ml_proven_core::{ensures, requires};
 
 /// One node of a tree, stored in an arena.
@@ -39,6 +40,8 @@ pub struct Tree {
 pub(crate) struct Limits {
     pub max_depth: usize,
     pub min_samples_leaf: usize,
+    /// Features considered per split. `usize::MAX` means all of them.
+    pub max_features: usize,
 }
 
 impl Tree {
@@ -90,13 +93,16 @@ impl Tree {
     }
 }
 
-/// Fits a tree to `targets` over the row-major `data` (`rows × cols`).
+/// Fits a tree to `targets` over the row-major `data` (`rows × cols`). At each node only
+/// `limits.max_features` features are candidates, drawn from `rng`. With every feature
+/// allowed, `rng` is not used.
 pub(crate) fn fit_tree(
     data: &[f64],
     rows: usize,
     cols: usize,
     targets: &[f64],
     limits: Limits,
+    rng: &mut SplitMix64,
 ) -> Result<Tree, Error> {
     requires!(limits.max_depth >= 1, "tree.max_depth_positive");
     requires!(
@@ -108,7 +114,14 @@ pub(crate) fn fit_tree(
     let mut nodes = Vec::new();
     let idx: Vec<usize> = (0..rows).collect();
     let mut depth = 0;
-    grow(data, cols, targets, idx, 0, limits, &mut nodes, &mut depth);
+    let mut grower = Grower {
+        data,
+        cols,
+        targets,
+        limits,
+        rng,
+    };
+    grower.grow(idx, 0, &mut nodes, &mut depth);
     let tree = Tree {
         nodes,
         n_features: cols,
@@ -124,123 +137,131 @@ pub(crate) fn fit_tree(
     Ok(tree)
 }
 
-#[allow(clippy::too_many_arguments)]
-fn grow(
-    data: &[f64],
+/// The features a node may split on: all of them, or `max_features` drawn without repetition.
+pub(crate) fn choose_features(
     cols: usize,
-    targets: &[f64],
-    idx: Vec<usize>,
-    depth: usize,
+    max_features: usize,
+    rng: &mut SplitMix64,
+) -> Vec<usize> {
+    let mut all: Vec<usize> = (0..cols).collect();
+    if max_features >= cols {
+        return all;
+    }
+    // Partial Fisher–Yates: the first `max_features` entries are a uniform sample.
+    for i in 0..max_features {
+        let j = i + rng.next_below(cols - i);
+        all.swap(i, j);
+    }
+    all.truncate(max_features);
+    all
+}
+
+/// The state shared by every node of one tree being grown.
+struct Grower<'a> {
+    data: &'a [f64],
+    cols: usize,
+    targets: &'a [f64],
     limits: Limits,
-    nodes: &mut Vec<Node>,
-    max_depth_seen: &mut usize,
-) -> usize {
-    let n = idx.len();
-    let total: f64 = idx.iter().map(|&i| targets[i]).sum();
-    let mean = total / n as f64;
-    *max_depth_seen = (*max_depth_seen).max(depth);
+    rng: &'a mut SplitMix64,
+}
 
-    let sse: f64 = idx.iter().map(|&i| (targets[i] - mean).powi(2)).sum();
-    let can_split = depth < limits.max_depth && n >= 2 * limits.min_samples_leaf && sse > 1e-12;
-    let best = if can_split {
-        best_split(data, cols, targets, &idx, total, limits.min_samples_leaf)
-    } else {
-        None
-    };
+impl Grower<'_> {
+    /// Grows the subtree for `idx` and returns the index of its root in `nodes`.
+    fn grow(
+        &mut self,
+        idx: Vec<usize>,
+        depth: usize,
+        nodes: &mut Vec<Node>,
+        max_depth_seen: &mut usize,
+    ) -> usize {
+        let n = idx.len();
+        let total: f64 = idx.iter().map(|&i| self.targets[i]).sum();
+        let mean = total / n as f64;
+        *max_depth_seen = (*max_depth_seen).max(depth);
 
-    let Some(split) = best else {
+        let sse: f64 = idx.iter().map(|&i| (self.targets[i] - mean).powi(2)).sum();
+        let can_split =
+            depth < self.limits.max_depth && n >= 2 * self.limits.min_samples_leaf && sse > 1e-12;
+        let best = if can_split {
+            let features = choose_features(self.cols, self.limits.max_features, self.rng);
+            self.best_split(&idx, total, &features)
+        } else {
+            None
+        };
+
+        let Some(split) = best else {
+            let at = nodes.len();
+            nodes.push(Node::Leaf {
+                value: mean,
+                count: n,
+            });
+            return at;
+        };
+
+        let (data, cols) = (self.data, self.cols);
+        let (left_idx, right_idx): (Vec<usize>, Vec<usize>) = idx
+            .into_iter()
+            .partition(|&i| data[i * cols + split.feature] <= split.threshold);
+        // Reserve this node's slot, then grow the children and fill the slot.
         let at = nodes.len();
         nodes.push(Node::Leaf {
             value: mean,
             count: n,
         });
-        return at;
-    };
+        let left = self.grow(left_idx, depth + 1, nodes, max_depth_seen);
+        let right = self.grow(right_idx, depth + 1, nodes, max_depth_seen);
+        nodes[at] = Node::Split {
+            feature: split.feature,
+            threshold: split.threshold,
+            left,
+            right,
+            count: n,
+        };
+        at
+    }
 
-    let (left_idx, right_idx): (Vec<usize>, Vec<usize>) = idx
-        .into_iter()
-        .partition(|&i| data[i * cols + split.feature] <= split.threshold);
-    // Reserve this node's slot, then grow the children and fill the slot.
-    let at = nodes.len();
-    nodes.push(Node::Leaf {
-        value: mean,
-        count: n,
-    });
-    let left = grow(
-        data,
-        cols,
-        targets,
-        left_idx,
-        depth + 1,
-        limits,
-        nodes,
-        max_depth_seen,
-    );
-    let right = grow(
-        data,
-        cols,
-        targets,
-        right_idx,
-        depth + 1,
-        limits,
-        nodes,
-        max_depth_seen,
-    );
-    nodes[at] = Node::Split {
-        feature: split.feature,
-        threshold: split.threshold,
-        left,
-        right,
-        count: n,
-    };
-    at
+    /// The split, among `features`, that most reduces squared error, or `None` if no valid
+    /// split reduces it.
+    fn best_split(&self, idx: &[usize], total: f64, features: &[usize]) -> Option<Split> {
+        let (data, cols, targets) = (self.data, self.cols, self.targets);
+        let min_leaf = self.limits.min_samples_leaf;
+        let n = idx.len();
+        // Maximising sl²/nl + sr²/nr is the same as minimising the children's squared error.
+        let mut best_score = f64::NEG_INFINITY;
+        let mut best: Option<Split> = None;
+        for &feature in features {
+            let mut order = idx.to_vec();
+            order.sort_by(|&a, &b| data[a * cols + feature].total_cmp(&data[b * cols + feature]));
+            let mut sum_left = 0.0;
+            for k in 0..n - 1 {
+                let i = order[k];
+                sum_left += targets[i];
+                let (nl, nr) = (k + 1, n - k - 1);
+                let v = data[i * cols + feature];
+                let next = data[order[k + 1] * cols + feature];
+                if v == next || nl < min_leaf || nr < min_leaf {
+                    continue;
+                }
+                let sum_right = total - sum_left;
+                let score = sum_left * sum_left / nl as f64 + sum_right * sum_right / nr as f64;
+                if score > best_score {
+                    best_score = score;
+                    // The midpoint, as scikit-learn chooses it; fall back to v if rounding hits next.
+                    let mut threshold = v / 2.0 + next / 2.0;
+                    if threshold == next {
+                        threshold = v;
+                    }
+                    best = Some(Split { feature, threshold });
+                }
+            }
+        }
+        // Accept only a split that reduces error, i.e. beats the unsplit node.
+        let parent = total * total / n as f64;
+        best.filter(|_| best_score > parent + 1e-12 * (1.0 + parent.abs()))
+    }
 }
 
 struct Split {
     feature: usize,
     threshold: f64,
-}
-
-/// The split that most reduces squared error, or `None` if no valid split exists.
-fn best_split(
-    data: &[f64],
-    cols: usize,
-    targets: &[f64],
-    idx: &[usize],
-    total: f64,
-    min_leaf: usize,
-) -> Option<Split> {
-    let n = idx.len();
-    // Maximising sl²/nl + sr²/nr is the same as minimising the children's squared error.
-    let mut best_score = f64::NEG_INFINITY;
-    let mut best: Option<Split> = None;
-    for feature in 0..cols {
-        let mut order = idx.to_vec();
-        order.sort_by(|&a, &b| data[a * cols + feature].total_cmp(&data[b * cols + feature]));
-        let mut sum_left = 0.0;
-        for k in 0..n - 1 {
-            let i = order[k];
-            sum_left += targets[i];
-            let (nl, nr) = (k + 1, n - k - 1);
-            let v = data[i * cols + feature];
-            let next = data[order[k + 1] * cols + feature];
-            if v == next || nl < min_leaf || nr < min_leaf {
-                continue;
-            }
-            let sum_right = total - sum_left;
-            let score = sum_left * sum_left / nl as f64 + sum_right * sum_right / nr as f64;
-            if score > best_score {
-                best_score = score;
-                // The midpoint, as scikit-learn chooses it; fall back to v if rounding hits next.
-                let mut threshold = v / 2.0 + next / 2.0;
-                if threshold == next {
-                    threshold = v;
-                }
-                best = Some(Split { feature, threshold });
-            }
-        }
-    }
-    // Accept only a split that reduces error, i.e. beats the unsplit node.
-    let parent = total * total / n as f64;
-    best.filter(|_| best_score > parent + 1e-12 * (1.0 + parent.abs()))
 }

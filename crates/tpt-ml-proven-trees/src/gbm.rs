@@ -9,9 +9,10 @@ use tpt_ml_proven_core::{
 };
 
 use crate::tree::{fit_tree, Limits, Tree};
+use tpt_ml_proven_core::rng::SplitMix64;
 
 /// Reads a feature matrix and target into flat `f64` buffers, checking shapes and values.
-fn read_xy<X, Y>(x: &X, y: &Y) -> Result<(Vec<f64>, Vec<f64>, usize, usize), Error>
+pub(crate) fn read_xy<X, Y>(x: &X, y: &Y) -> Result<(Vec<f64>, Vec<f64>, usize, usize), Error>
 where
     X: ArrayView<Elem = f64>,
     Y: TargetView<Elem = f64>,
@@ -64,7 +65,7 @@ fn read_rows<X: ArrayView<Elem = f64>>(x: &X, n_features: usize) -> Result<Vec<f
     Ok(out)
 }
 
-fn check_limits(max_depth: usize, min_samples_leaf: usize) -> Result<(), Error> {
+pub(crate) fn check_limits(max_depth: usize, min_samples_leaf: usize) -> Result<(), Error> {
     if max_depth == 0 {
         return Err(Error::InvalidParameter {
             name: "max_depth",
@@ -154,7 +155,9 @@ impl SupervisedEstimator for DecisionTreeRegressor {
             Limits {
                 max_depth: self.max_depth,
                 min_samples_leaf: self.min_samples_leaf,
+                max_features: usize::MAX,
             },
+            &mut SplitMix64::new(0),
         )?;
         self.fitted = Some(tree);
         Ok(())
@@ -319,7 +322,9 @@ impl SupervisedEstimator for GradientBoostingRegressor {
         let limits = Limits {
             max_depth: self.max_depth,
             min_samples_leaf: self.min_samples_leaf,
+            max_features: usize::MAX,
         };
+        let mut rng = SplitMix64::new(0);
         let mut trees = Vec::with_capacity(self.n_estimators);
         let mut train_loss = Vec::with_capacity(self.n_estimators);
         let mut residual = vec![0.0; rows];
@@ -328,7 +333,7 @@ impl SupervisedEstimator for GradientBoostingRegressor {
                 residual[i] = targets[i] - pred[i];
             }
             let before = residual.iter().map(|r| r * r).sum::<f64>() / n;
-            let tree = fit_tree(&data, rows, cols, &residual, limits)?;
+            let tree = fit_tree(&data, rows, cols, &residual, limits, &mut rng)?;
             for i in 0..rows {
                 pred[i] += self.learning_rate * tree.predict_row(&data[i * cols..(i + 1) * cols]);
             }
