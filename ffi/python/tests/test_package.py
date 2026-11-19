@@ -7,6 +7,18 @@ from tpt_ml_proven import _native
 
 EXPORTED = [
     "DBSCAN",
+    "StandardScaler",
+    "MinMaxScaler",
+    "RobustScaler",
+    "OneHotEncoder",
+    "OrdinalEncoder",
+    "SimpleImputer",
+    "DecisionTreeRegressor",
+    "DecisionTreeClassifier",
+    "GradientBoostingRegressor",
+    "RandomForestRegressor",
+    "RandomForestClassifier",
+
     "HDBSCAN",
     "NMF",
     "PCA",

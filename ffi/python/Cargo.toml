@@ -22,3 +22,5 @@ tpt-ml-proven-clustering = { path = "../../crates/tpt-ml-proven-clustering", fea
 tpt-ml-proven-decomposition = { path = "../../crates/tpt-ml-proven-decomposition" }
 tpt-ml-proven-linear = { path = "../../crates/tpt-ml-proven-linear" }
 tpt-ml-proven-ensemble = { path = "../../crates/tpt-ml-proven-ensemble" }
+tpt-ml-proven-preprocessing = { path = "../../crates/tpt-ml-proven-preprocessing" }
+tpt-ml-proven-trees = { path = "../../crates/tpt-ml-proven-trees" }

@@ -27,6 +27,10 @@ use tpt_ml_proven_core::{
 use tpt_ml_proven_decomposition::Pca;
 
 mod models;
+mod preprocessing;
+mod tree_models;
+pub use preprocessing::*;
+pub use tree_models::*;
 
 pub use models::{
     PyDbscan, PyElasticNet, PyHdbscan, PyLasso, PyLogisticRegression, PyNmf, PyRidge,
@@ -885,6 +889,17 @@ impl PyPca {
 
 #[pymodule]
 fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add_class::<PyStandardScaler>()?;
+    m.add_class::<PyMinMaxScaler>()?;
+    m.add_class::<PyRobustScaler>()?;
+    m.add_class::<PyOneHotEncoder>()?;
+    m.add_class::<PyOrdinalEncoder>()?;
+    m.add_class::<PySimpleImputer>()?;
+    m.add_class::<PyDecisionTreeRegressor>()?;
+    m.add_class::<PyDecisionTreeClassifier>()?;
+    m.add_class::<PyGradientBoostingRegressor>()?;
+    m.add_class::<PyRandomForestRegressor>()?;
+    m.add_class::<PyRandomForestClassifier>()?;
     m.add_class::<PyKMeans>()?;
     m.add_class::<PyPca>()?;
     m.add_class::<PyDbscan>()?;
