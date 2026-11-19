@@ -471,7 +471,54 @@ impl<F: Float> SupervisedEstimator for Lasso<F> {
         X: ArrayView<Elem = F>,
         Y: TargetView<Elem = F>,
     {
-        SupervisedEstimator::fit(&mut self.0, x, y)
+        // Copy the data first: the inner fit takes ownership of the views.
+        let (rows, cols) = (x.rows(), x.cols());
+        let mut data = Vec::with_capacity(rows * cols);
+        for r in 0..rows {
+            for c in 0..cols {
+                data.push(x.get(r, c).to_f64());
+            }
+        }
+        let target: Vec<f64> = (0..y.len()).map(|i| y.get(i).to_f64()).collect();
+        SupervisedEstimator::fit(&mut self.0, x, y)?;
+
+        // The inner fit has already rejected invalid input with its own errors, so these
+        // checks restate the lasso preconditions and the optimality condition.
+        requires!(rows >= 1, "lasso.rows_positive");
+        requires!(self.0.alpha >= 0.0, "lasso.alpha_nonneg");
+        let (coef, intercept, iterations) = self.0.fitted.as_ref().ok_or(Error::NotFitted)?;
+        // The lasso optimality conditions are only guaranteed at convergence. A run that
+        // hit `max_iter` stopped early, so it is not checked here.
+        if *iterations < self.0.max_iter {
+            let nf = rows as f64;
+            let means: Vec<f64> = (0..cols)
+                .map(|j| (0..rows).map(|r| data[r * cols + j]).sum::<f64>() / nf)
+                .collect();
+            let resid: Vec<f64> = (0..rows)
+                .map(|r| {
+                    target[r]
+                        - intercept
+                        - (0..cols).map(|j| data[r * cols + j] * coef[j]).sum::<f64>()
+                })
+                .collect();
+            let alpha = self.0.alpha;
+            let violation = (0..cols)
+                .map(|j| {
+                    // Gradient of the centred squared loss, as in `kkt_violation`.
+                    let g = -(0..rows)
+                        .map(|r| (data[r * cols + j] - means[j]) * resid[r])
+                        .sum::<f64>()
+                        / nf;
+                    if coef[j] != 0.0 {
+                        (g + alpha * coef[j].signum()).abs()
+                    } else {
+                        (g.abs() - alpha).max(0.0)
+                    }
+                })
+                .fold(0.0_f64, f64::max);
+            ensures!(violation <= KKT_SLACK, "lasso.kkt");
+        }
+        Ok(())
     }
 }
 

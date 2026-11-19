@@ -1,0 +1,14 @@
+# Lasso contract. Lasso wraps ElasticNet with l1_ratio = 1, and this file states the
+# preconditions and optimality condition that Lasso itself checks.
+# Format and verification rules: docs/contracts/README.md
+
+contract lasso
+source crates/tpt-ml-proven-linear/src/lib.rs
+
+requires[rows_positive]: X.rows >= 1
+requires[alpha_nonneg]: alpha >= 0
+
+# Optimality of the coordinate-descent solution at convergence, up to the stopping slack.
+# Written as an uninterpreted call, so it is reported as UNVERIFIED and enforced by the
+# runtime check in `Lasso::fit`.
+ensures[kkt]: kkt_violation(X, y, coef, alpha) <= kkt_slack
