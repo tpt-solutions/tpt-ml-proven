@@ -39,14 +39,49 @@ typedef enum tpml_TpmlStatus {
 } tpml_TpmlStatus;
 
 /**
+ * Opaque DBSCAN handle.
+ */
+typedef struct tpml_TpmlDbscan tpml_TpmlDbscan;
+
+/**
+ * Opaque HDBSCAN handle.
+ */
+typedef struct tpml_TpmlHdbscan tpml_TpmlHdbscan;
+
+/**
  * Opaque KMeans handle.
  */
 typedef struct tpml_TpmlKMeans tpml_TpmlKMeans;
 
 /**
+ * Opaque logistic regression handle.
+ */
+typedef struct tpml_TpmlLogistic tpml_TpmlLogistic;
+
+/**
+ * Opaque NMF handle.
+ */
+typedef struct tpml_TpmlNmf tpml_TpmlNmf;
+
+/**
  * Opaque PCA handle.
  */
 typedef struct tpml_TpmlPca tpml_TpmlPca;
+
+/**
+ * Opaque Ridge handle.
+ */
+typedef struct tpml_TpmlRidge tpml_TpmlRidge;
+
+/**
+ * Opaque stump forest handle.
+ */
+typedef struct tpml_TpmlStumpForest tpml_TpmlStumpForest;
+
+/**
+ * Opaque TruncatedSVD handle.
+ */
+typedef struct tpml_TpmlTruncatedSvd tpml_TpmlTruncatedSvd;
 
 /**
  * Message for the most recent failure on this thread, as a NUL-terminated string.
@@ -195,5 +230,340 @@ enum tpml_TpmlStatus tpml_pca_components(const struct tpml_TpmlPca *h,
 enum tpml_TpmlStatus tpml_pca_explained_variance(const struct tpml_TpmlPca *h,
                                                  double *out,
                                                  uintptr_t out_len);
+
+/**
+ * Creates a DBSCAN estimator. Free it with `tpml_dbscan_free`. Returns null if `eps` is not
+ * positive or `min_samples` is zero.
+ */
+struct tpml_TpmlDbscan *tpml_dbscan_new(double eps, uintptr_t min_samples);
+
+/**
+ * Frees a DBSCAN handle. Null is ignored.
+ *
+ * # Safety
+ * `h` must be null or a handle from `tpml_dbscan_new` that has not been freed.
+ */
+void tpml_dbscan_free(struct tpml_TpmlDbscan *h);
+
+/**
+ * Fits to a row-major `rows × cols` matrix.
+ *
+ * # Safety
+ * `h` must be a live handle and `data` valid for `rows * cols` reads.
+ */
+enum tpml_TpmlStatus tpml_dbscan_fit(struct tpml_TpmlDbscan *h,
+                                     const double *data,
+                                     uintptr_t rows,
+                                     uintptr_t cols);
+
+/**
+ * Writes the label of each training row (`-1` for noise) into `out`, which holds `out_len`
+ * values.
+ *
+ * # Safety
+ * `h` must be a live handle and `out` valid for `out_len` `i64` writes.
+ */
+enum tpml_TpmlStatus tpml_dbscan_labels(const struct tpml_TpmlDbscan *h,
+                                        int64_t *out,
+                                        uintptr_t out_len);
+
+/**
+ * Creates an HDBSCAN estimator. `min_samples` of zero means "same as `min_cluster_size`".
+ * Free it with `tpml_hdbscan_free`. Returns null if `min_cluster_size` is below 2.
+ */
+struct tpml_TpmlHdbscan *tpml_hdbscan_new(uintptr_t min_cluster_size, uintptr_t min_samples);
+
+/**
+ * Frees an HDBSCAN handle. Null is ignored.
+ *
+ * # Safety
+ * `h` must be null or a handle from `tpml_hdbscan_new` that has not been freed.
+ */
+void tpml_hdbscan_free(struct tpml_TpmlHdbscan *h);
+
+/**
+ * Fits to a row-major `rows × cols` matrix.
+ *
+ * # Safety
+ * `h` must be a live handle and `data` valid for `rows * cols` reads.
+ */
+enum tpml_TpmlStatus tpml_hdbscan_fit(struct tpml_TpmlHdbscan *h,
+                                      const double *data,
+                                      uintptr_t rows,
+                                      uintptr_t cols);
+
+/**
+ * Writes the label of each training row (`-1` for noise) into `out`.
+ *
+ * # Safety
+ * `h` must be a live handle and `out` valid for `out_len` `i64` writes.
+ */
+enum tpml_TpmlStatus tpml_hdbscan_labels(const struct tpml_TpmlHdbscan *h,
+                                         int64_t *out,
+                                         uintptr_t out_len);
+
+/**
+ * Creates a TruncatedSVD estimator keeping `n_components` vectors. Free it with
+ * `tpml_truncated_svd_free`. Returns null if `n_components` is zero.
+ */
+struct tpml_TpmlTruncatedSvd *tpml_truncated_svd_new(uintptr_t n_components);
+
+/**
+ * Frees a TruncatedSVD handle. Null is ignored.
+ *
+ * # Safety
+ * `h` must be null or a handle from `tpml_truncated_svd_new` that has not been freed.
+ */
+void tpml_truncated_svd_free(struct tpml_TpmlTruncatedSvd *h);
+
+/**
+ * Fits to a row-major `rows × cols` matrix.
+ *
+ * # Safety
+ * `h` must be a live handle and `data` valid for `rows * cols` reads.
+ */
+enum tpml_TpmlStatus tpml_truncated_svd_fit(struct tpml_TpmlTruncatedSvd *h,
+                                            const double *data,
+                                            uintptr_t rows,
+                                            uintptr_t cols);
+
+/**
+ * Projects a row-major `rows × cols` matrix. `out` receives `rows × n_components` values.
+ *
+ * # Safety
+ * `h` must be a live handle, `data` valid for `rows * cols` reads, and `out` valid for
+ * `out_len` writes.
+ */
+enum tpml_TpmlStatus tpml_truncated_svd_transform(const struct tpml_TpmlTruncatedSvd *h,
+                                                  const double *data,
+                                                  uintptr_t rows,
+                                                  uintptr_t cols,
+                                                  double *out,
+                                                  uintptr_t out_len);
+
+/**
+ * Writes the singular values, largest first, into `out` (`n_components` values).
+ *
+ * # Safety
+ * `h` must be a live handle and `out` valid for `out_len` writes.
+ */
+enum tpml_TpmlStatus tpml_truncated_svd_singular_values(const struct tpml_TpmlTruncatedSvd *h,
+                                                        double *out,
+                                                        uintptr_t out_len);
+
+/**
+ * Creates an NMF estimator. Free it with `tpml_nmf_free`. Returns null if `n_components`
+ * is zero.
+ */
+struct tpml_TpmlNmf *tpml_nmf_new(uintptr_t n_components,
+                                  uintptr_t max_iter,
+                                  double tol,
+                                  uint64_t seed);
+
+/**
+ * Frees an NMF handle. Null is ignored.
+ *
+ * # Safety
+ * `h` must be null or a handle from `tpml_nmf_new` that has not been freed.
+ */
+void tpml_nmf_free(struct tpml_TpmlNmf *h);
+
+/**
+ * Fits to a non-negative row-major `rows × cols` matrix.
+ *
+ * # Safety
+ * `h` must be a live handle and `data` valid for `rows * cols` reads.
+ */
+enum tpml_TpmlStatus tpml_nmf_fit(struct tpml_TpmlNmf *h,
+                                  const double *data,
+                                  uintptr_t rows,
+                                  uintptr_t cols);
+
+/**
+ * Writes the factor `W` for a row-major `rows × cols` matrix into `out`
+ * (`rows × n_components` values).
+ *
+ * # Safety
+ * `h` must be a live handle, `data` valid for `rows * cols` reads, and `out` valid for
+ * `out_len` writes.
+ */
+enum tpml_TpmlStatus tpml_nmf_transform(const struct tpml_TpmlNmf *h,
+                                        const double *data,
+                                        uintptr_t rows,
+                                        uintptr_t cols,
+                                        double *out,
+                                        uintptr_t out_len);
+
+/**
+ * Writes the learned factors `H` (`n_components × cols`, row-major) into `out`.
+ *
+ * # Safety
+ * `h` must be a live handle and `out` valid for `out_len` writes.
+ */
+enum tpml_TpmlStatus tpml_nmf_components(const struct tpml_TpmlNmf *h,
+                                         double *out,
+                                         uintptr_t out_len);
+
+/**
+ * Creates a Ridge regression with penalty `alpha`. Free it with `tpml_ridge_free`. Returns
+ * null if `alpha` is negative or not finite.
+ */
+struct tpml_TpmlRidge *tpml_ridge_new(double alpha);
+
+/**
+ * Frees a Ridge handle. Null is ignored.
+ *
+ * # Safety
+ * `h` must be null or a handle from `tpml_ridge_new` that has not been freed.
+ */
+void tpml_ridge_free(struct tpml_TpmlRidge *h);
+
+/**
+ * Fits to a row-major `rows × cols` matrix and `rows` targets.
+ *
+ * # Safety
+ * `h` must be a live handle, `data` valid for `rows * cols` reads, and `y` for `rows` reads.
+ */
+enum tpml_TpmlStatus tpml_ridge_fit(struct tpml_TpmlRidge *h,
+                                    const double *data,
+                                    uintptr_t rows,
+                                    uintptr_t cols,
+                                    const double *y);
+
+/**
+ * Predicts for a row-major `rows × cols` matrix. `out` receives `rows` values.
+ *
+ * # Safety
+ * `h` must be a live handle, `data` valid for `rows * cols` reads, and `out` valid for
+ * `out_len` writes.
+ */
+enum tpml_TpmlStatus tpml_ridge_predict(const struct tpml_TpmlRidge *h,
+                                        const double *data,
+                                        uintptr_t rows,
+                                        uintptr_t cols,
+                                        double *out,
+                                        uintptr_t out_len);
+
+/**
+ * Writes the coefficients (`cols` values) into `out`.
+ *
+ * # Safety
+ * `h` must be a live handle and `out` valid for `out_len` writes.
+ */
+enum tpml_TpmlStatus tpml_ridge_coef(const struct tpml_TpmlRidge *h,
+                                     double *out,
+                                     uintptr_t out_len);
+
+/**
+ * Writes the intercept into `out`.
+ *
+ * # Safety
+ * `h` must be a live handle and `out` valid for one write.
+ */
+enum tpml_TpmlStatus tpml_ridge_intercept(const struct tpml_TpmlRidge *h, double *out);
+
+/**
+ * Creates a logistic regression with inverse regularisation strength `c`. Free it with
+ * `tpml_logistic_free`. Returns null if `c` is not positive.
+ */
+struct tpml_TpmlLogistic *tpml_logistic_new(double c, uintptr_t max_iter, double tol);
+
+/**
+ * Frees a logistic regression handle. Null is ignored.
+ *
+ * # Safety
+ * `h` must be null or a handle from `tpml_logistic_new` that has not been freed.
+ */
+void tpml_logistic_free(struct tpml_TpmlLogistic *h);
+
+/**
+ * Fits to a row-major `rows × cols` matrix and `rows` class labels. Two distinct labels
+ * give a binary model; more give a multinomial one.
+ *
+ * # Safety
+ * `h` must be a live handle, `data` valid for `rows * cols` reads, and `y` for `rows` reads.
+ */
+enum tpml_TpmlStatus tpml_logistic_fit(struct tpml_TpmlLogistic *h,
+                                       const double *data,
+                                       uintptr_t rows,
+                                       uintptr_t cols,
+                                       const double *y);
+
+/**
+ * Writes the number of classes seen in training into `out`.
+ *
+ * # Safety
+ * `h` must be a live handle and `out` valid for one `usize` write.
+ */
+enum tpml_TpmlStatus tpml_logistic_n_classes(const struct tpml_TpmlLogistic *h, uintptr_t *out);
+
+/**
+ * Writes the predicted class labels for a row-major `rows × cols` matrix into `out`.
+ *
+ * # Safety
+ * `h` must be a live handle, `data` valid for `rows * cols` reads, and `out` valid for
+ * `out_len` writes.
+ */
+enum tpml_TpmlStatus tpml_logistic_predict(const struct tpml_TpmlLogistic *h,
+                                           const double *data,
+                                           uintptr_t rows,
+                                           uintptr_t cols,
+                                           double *out,
+                                           uintptr_t out_len);
+
+/**
+ * Writes class probabilities for a row-major `rows × cols` matrix into `out`
+ * (`rows × n_classes` values, classes in ascending order).
+ *
+ * # Safety
+ * `h` must be a live handle, `data` valid for `rows * cols` reads, and `out` valid for
+ * `out_len` writes.
+ */
+enum tpml_TpmlStatus tpml_logistic_predict_proba(const struct tpml_TpmlLogistic *h,
+                                                 const double *data,
+                                                 uintptr_t rows,
+                                                 uintptr_t cols,
+                                                 double *out,
+                                                 uintptr_t out_len);
+
+/**
+ * Creates a stump forest of `n_estimators` stumps. Free it with `tpml_stump_forest_free`.
+ * Returns null if `n_estimators` is zero.
+ */
+struct tpml_TpmlStumpForest *tpml_stump_forest_new(uintptr_t n_estimators, uint64_t seed);
+
+/**
+ * Frees a stump forest handle. Null is ignored.
+ *
+ * # Safety
+ * `h` must be null or a handle from `tpml_stump_forest_new` that has not been freed.
+ */
+void tpml_stump_forest_free(struct tpml_TpmlStumpForest *h);
+
+/**
+ * Fits to a row-major `rows × cols` matrix and `rows` class labels.
+ *
+ * # Safety
+ * `h` must be a live handle, `data` valid for `rows * cols` reads, and `y` for `rows` reads.
+ */
+enum tpml_TpmlStatus tpml_stump_forest_fit(struct tpml_TpmlStumpForest *h,
+                                           const double *data,
+                                           uintptr_t rows,
+                                           uintptr_t cols,
+                                           const double *y);
+
+/**
+ * Predicts class labels for a row-major `rows × cols` matrix. `out` receives `rows` values.
+ *
+ * # Safety
+ * `h` must be a live handle, `data` valid for `rows * cols` reads, and `out` valid for
+ * `out_len` writes.
+ */
+enum tpml_TpmlStatus tpml_stump_forest_predict(const struct tpml_TpmlStumpForest *h,
+                                               const double *data,
+                                               uintptr_t rows,
+                                               uintptr_t cols,
+                                               double *out,
+                                               uintptr_t out_len);
 
 #endif  /* TPT_ML_PROVEN_H */

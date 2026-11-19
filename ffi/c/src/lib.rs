@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 TPT Solutions
 
-//! C ABI for KMeans and PCA, used by the Go binding and any C-compatible caller.
+//! C ABI for KMeans and PCA, used by the Go binding and any C-compatible caller. The Phase 8
+//! estimators live in the `models` module, with the same conventions.
 //!
 //! Conventions:
 //!
@@ -22,6 +23,8 @@ use tpt_ml_proven_clustering::{Init, KMeans};
 use tpt_ml_proven_core::error::Error;
 use tpt_ml_proven_core::{DenseView, Predictor, Transformer, UnsupervisedEstimator};
 use tpt_ml_proven_decomposition::Pca;
+
+mod models;
 
 /// Result of a call. `Ok` is zero.
 #[repr(C)]

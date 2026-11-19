@@ -9,6 +9,8 @@ dependencies = [
  "tpt-ml-proven-clustering",
  "tpt-ml-proven-core",
  "tpt-ml-proven-decomposition",
+ "tpt-ml-proven-ensemble",
+ "tpt-ml-proven-linear",
 ]
 
 [[package]]
@@ -24,6 +26,20 @@ version = "0.0.0"
 
 [[package]]
 name = "tpt-ml-proven-decomposition"
+version = "0.0.0"
+dependencies = [
+ "tpt-ml-proven-core",
+]
+
+[[package]]
+name = "tpt-ml-proven-ensemble"
+version = "0.0.0"
+dependencies = [
+ "tpt-ml-proven-core",
+]
+
+[[package]]
+name = "tpt-ml-proven-linear"
 version = "0.0.0"
 dependencies = [
  "tpt-ml-proven-core",
