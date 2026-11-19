@@ -1,0 +1,33 @@
+[package]
+name = "tpt-ml-proven"
+description = "Umbrella crate for tpt-ml-proven: every estimator behind one dependency, with a prelude and feature flags to pick the families you need."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+readme = "README.md"
+keywords = ["machine-learning", "scikit-learn", "estimator", "formal-verification", "prelude"]
+categories = ["algorithms", "science"]
+
+[features]
+default = ["clustering", "decomposition", "linear", "preprocessing", "trees", "ensemble"]
+clustering = ["dep:tpt-ml-proven-clustering"]
+decomposition = ["dep:tpt-ml-proven-decomposition"]
+linear = ["dep:tpt-ml-proven-linear"]
+preprocessing = ["dep:tpt-ml-proven-preprocessing"]
+trees = ["dep:tpt-ml-proven-trees"]
+ensemble = ["dep:tpt-ml-proven-ensemble"]
+
+[dependencies]
+tpt-ml-proven-core.workspace = true
+tpt-ml-proven-clustering = { version = "0.0.0", path = "../tpt-ml-proven-clustering", optional = true }
+tpt-ml-proven-decomposition = { version = "0.0.0", path = "../tpt-ml-proven-decomposition", optional = true }
+tpt-ml-proven-linear = { version = "0.0.0", path = "../tpt-ml-proven-linear", optional = true }
+tpt-ml-proven-preprocessing = { version = "0.0.0", path = "../tpt-ml-proven-preprocessing", optional = true }
+tpt-ml-proven-trees = { version = "0.0.0", path = "../tpt-ml-proven-trees", optional = true }
+tpt-ml-proven-ensemble = { version = "0.0.0", path = "../tpt-ml-proven-ensemble", optional = true }
+
+[lints]
+workspace = true
