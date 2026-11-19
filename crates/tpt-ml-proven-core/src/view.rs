@@ -47,6 +47,24 @@ pub trait ArrayView {
         }
         true
     }
+
+    /// Calls `f(col, value)` for each non-zero entry of row `row`, in increasing column
+    /// order. Sparse layouts override this to visit only the stored entries, so the cost
+    /// follows the number of non-zeros rather than the number of columns.
+    ///
+    /// Skipping zeros does not change a sum: adding `0.0` leaves a float unchanged, so a
+    /// loop over these entries gives the same result as a loop over every column.
+    fn for_each_nonzero<G: FnMut(usize, Self::Elem)>(&self, row: usize, mut f: G)
+    where
+        Self: Sized,
+    {
+        for c in 0..self.cols() {
+            let v = self.get(row, c);
+            if v != Self::Elem::ZERO {
+                f(c, v);
+            }
+        }
+    }
 }
 
 /// A read-only 1-D target vector (labels or regression targets).
@@ -234,6 +252,37 @@ impl<T: Float> ArrayView for CsrView<'_, T> {
             Ok(k) => self.data[lo + k],
             Err(_) => T::ZERO,
         }
+    }
+
+    /// Only the stored entries are visited. Explicitly stored zeros are passed through, which
+    /// is harmless: they add nothing to a sum.
+    fn for_each_nonzero<G: FnMut(usize, T)>(&self, row: usize, mut f: G)
+    where
+        Self: Sized,
+    {
+        assert!(row < self.rows, "index out of bounds");
+        let (cols, vals) = self.row(row);
+        for (&c, &v) in cols.iter().zip(vals) {
+            f(c, v);
+        }
+    }
+
+    /// Only the stored values need checking: an implicit entry is zero, which is finite.
+    fn all_finite(&self) -> bool {
+        self.data.iter().all(|v| v.is_finite())
+    }
+}
+
+impl<'a, T: Float> CsrView<'a, T> {
+    /// Column indices and values of row `i`, in increasing column order.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `i >= self.rows()`.
+    pub fn row(&self, i: usize) -> (&'a [usize], &'a [T]) {
+        assert!(i < self.rows, "index out of bounds");
+        let (lo, hi) = (self.indptr[i], self.indptr[i + 1]);
+        (&self.indices[lo..hi], &self.data[lo..hi])
     }
 }
 

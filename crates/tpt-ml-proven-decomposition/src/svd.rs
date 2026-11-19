@@ -121,12 +121,16 @@ impl<F: Float> UnsupervisedEstimator for TruncatedSvd<F> {
         requires!(n >= 1, "svd.rows_positive");
         requires!(self.n_components >= 1, "svd.components_positive");
         requires!(self.n_components <= d, "svd.components_le_cols");
+        // XᵀX over the non-zeros of each row. The entries come in column order, so every
+        // cell of the Gram matrix receives the same products in the same order as a dense loop.
         let mut gram = vec![0.0_f64; d * d];
+        let mut nonzeros: Vec<(usize, f64)> = Vec::new();
         for r in 0..n {
-            for i in 0..d {
-                let xi = x.get(r, i).to_f64();
-                for j in i..d {
-                    gram[i * d + j] += xi * x.get(r, j).to_f64();
+            nonzeros.clear();
+            x.for_each_nonzero(r, |c, v| nonzeros.push((c, v.to_f64())));
+            for (a, &(i, xi)) in nonzeros.iter().enumerate() {
+                for &(j, xj) in &nonzeros[a..] {
+                    gram[i * d + j] += xi * xj;
                 }
             }
         }
@@ -176,7 +180,11 @@ impl<F: Float> UnsupervisedEstimator for TruncatedSvd<F> {
         let mut explained_variance = Vec::with_capacity(k);
         for comp in &components {
             let proj: Vec<f64> = (0..n)
-                .map(|r| (0..d).map(|c| x.get(r, c).to_f64() * comp[c]).sum::<f64>())
+                .map(|r| {
+                    let mut s = 0.0_f64;
+                    x.for_each_nonzero(r, |c, v| s += v.to_f64() * comp[c]);
+                    s
+                })
                 .collect();
             let mean = proj.iter().sum::<f64>() / n as f64;
             let var = proj.iter().map(|p| (p - mean) * (p - mean)).sum::<f64>() / n as f64;
@@ -216,12 +224,14 @@ impl<F: Float> Transformer for TruncatedSvd<F> {
         let k = fitted.components.rows();
         let mut out = Vec::with_capacity(x.rows() * k);
         for r in 0..x.rows() {
-            for c in 0..k {
-                let s: f64 = (0..x.cols())
-                    .map(|j| x.get(r, j).to_f64() * fitted.components.get(c, j).to_f64())
-                    .sum();
-                out.push(F::from_f64(s));
-            }
+            let mut sums = vec![0.0_f64; k];
+            x.for_each_nonzero(r, |j, v| {
+                let v = v.to_f64();
+                for (c, s) in sums.iter_mut().enumerate() {
+                    *s += v * fitted.components.get(c, j).to_f64();
+                }
+            });
+            out.extend(sums.into_iter().map(F::from_f64));
         }
         Ok(Dense::from_vec(out, x.rows(), k)?)
     }
