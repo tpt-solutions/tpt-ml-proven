@@ -11,6 +11,8 @@ dependencies = [
  "tpt-ml-proven-decomposition",
  "tpt-ml-proven-ensemble",
  "tpt-ml-proven-linear",
+ "tpt-ml-proven-preprocessing",
+ "tpt-ml-proven-trees",
 ]
 
 [[package]]
@@ -40,6 +42,20 @@ dependencies = [
 
 [[package]]
 name = "tpt-ml-proven-linear"
+version = "0.0.0"
+dependencies = [
+ "tpt-ml-proven-core",
+]
+
+[[package]]
+name = "tpt-ml-proven-preprocessing"
+version = "0.0.0"
+dependencies = [
+ "tpt-ml-proven-core",
+]
+
+[[package]]
+name = "tpt-ml-proven-trees"
 version = "0.0.0"
 dependencies = [
  "tpt-ml-proven-core",

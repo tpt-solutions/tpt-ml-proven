@@ -9,6 +9,42 @@
 #include <stdlib.h>
 
 /**
+ * Impurity measure for the classification trees and forests. C callers construct these.
+ */
+typedef enum tpml_TpmlCriterion {
+  /**
+   * Gini impurity.
+   */
+  tpml_TpmlCriterion_Gini = 0,
+  /**
+   * Shannon entropy.
+   */
+  tpml_TpmlCriterion_Entropy = 1,
+} tpml_TpmlCriterion;
+
+/**
+ * How `SimpleImputer` chooses its fill value. C callers construct these; Rust only matches them.
+ */
+typedef enum tpml_TpmlImputeStrategy {
+  /**
+   * The mean of the observed values.
+   */
+  tpml_TpmlImputeStrategy_Mean = 0,
+  /**
+   * The median of the observed values.
+   */
+  tpml_TpmlImputeStrategy_Median = 1,
+  /**
+   * The most frequent observed value.
+   */
+  tpml_TpmlImputeStrategy_MostFrequent = 2,
+  /**
+   * A fixed value, given to `tpml_simple_imputer_new`.
+   */
+  tpml_TpmlImputeStrategy_Constant = 3,
+} tpml_TpmlImputeStrategy;
+
+/**
  * Result of a call. `Ok` is zero.
  */
 typedef enum tpml_TpmlStatus {
@@ -44,9 +80,24 @@ typedef enum tpml_TpmlStatus {
 typedef struct tpml_TpmlDbscan tpml_TpmlDbscan;
 
 /**
+ * Opaque decision tree classifier handle.
+ */
+typedef struct tpml_TpmlDecisionTreeClassifier tpml_TpmlDecisionTreeClassifier;
+
+/**
+ * Opaque decision tree regressor handle.
+ */
+typedef struct tpml_TpmlDecisionTreeRegressor tpml_TpmlDecisionTreeRegressor;
+
+/**
  * Opaque ElasticNet handle.
  */
 typedef struct tpml_TpmlElasticNet tpml_TpmlElasticNet;
+
+/**
+ * Opaque gradient boosting handle.
+ */
+typedef struct tpml_TpmlGradientBoosting tpml_TpmlGradientBoosting;
 
 /**
  * Opaque HDBSCAN handle.
@@ -69,9 +120,24 @@ typedef struct tpml_TpmlLasso tpml_TpmlLasso;
 typedef struct tpml_TpmlLogistic tpml_TpmlLogistic;
 
 /**
+ * Opaque min-max scaler handle.
+ */
+typedef struct tpml_TpmlMinMaxScaler tpml_TpmlMinMaxScaler;
+
+/**
  * Opaque NMF handle.
  */
 typedef struct tpml_TpmlNmf tpml_TpmlNmf;
+
+/**
+ * Opaque one-hot encoder handle.
+ */
+typedef struct tpml_TpmlOneHotEncoder tpml_TpmlOneHotEncoder;
+
+/**
+ * Opaque ordinal encoder handle.
+ */
+typedef struct tpml_TpmlOrdinalEncoder tpml_TpmlOrdinalEncoder;
 
 /**
  * Opaque PCA handle.
@@ -79,9 +145,34 @@ typedef struct tpml_TpmlNmf tpml_TpmlNmf;
 typedef struct tpml_TpmlPca tpml_TpmlPca;
 
 /**
+ * Opaque random forest classifier handle.
+ */
+typedef struct tpml_TpmlRandomForestClassifier tpml_TpmlRandomForestClassifier;
+
+/**
+ * Opaque random forest regressor handle.
+ */
+typedef struct tpml_TpmlRandomForestRegressor tpml_TpmlRandomForestRegressor;
+
+/**
  * Opaque Ridge handle.
  */
 typedef struct tpml_TpmlRidge tpml_TpmlRidge;
+
+/**
+ * Opaque robust scaler handle.
+ */
+typedef struct tpml_TpmlRobustScaler tpml_TpmlRobustScaler;
+
+/**
+ * Opaque imputer handle.
+ */
+typedef struct tpml_TpmlSimpleImputer tpml_TpmlSimpleImputer;
+
+/**
+ * Opaque standard scaler handle.
+ */
+typedef struct tpml_TpmlStandardScaler tpml_TpmlStandardScaler;
 
 /**
  * Opaque stump forest handle.
@@ -92,6 +183,12 @@ typedef struct tpml_TpmlStumpForest tpml_TpmlStumpForest;
  * Opaque TruncatedSVD handle.
  */
 typedef struct tpml_TpmlTruncatedSvd tpml_TpmlTruncatedSvd;
+
+/**
+ * The library version as a NUL-terminated string, for example "0.0.0". The pointer is
+ * static and never freed.
+ */
+const char *tpml_version(void);
 
 /**
  * Message for the most recent failure on this thread, as a NUL-terminated string.
@@ -694,5 +791,527 @@ enum tpml_TpmlStatus tpml_stump_forest_predict(const struct tpml_TpmlStumpForest
                                                uintptr_t cols,
                                                double *out,
                                                uintptr_t out_len);
+
+/**
+ * Creates a standard scaler. Free it with `tpml_standard_scaler_free`.
+ */
+struct tpml_TpmlStandardScaler *tpml_standard_scaler_new(void);
+
+/**
+ * Frees a standard scaler handle. Null is ignored.
+ *
+ * # Safety
+ * `h` must be null or a live handle from `tpml_standard_scaler_new`.
+ */
+void tpml_standard_scaler_free(struct tpml_TpmlStandardScaler *h);
+
+/**
+ * Learns the per-feature mean and scale from a row-major `rows × cols` matrix.
+ *
+ * # Safety
+ * `data` is valid for `rows * cols` reads.
+ */
+enum tpml_TpmlStatus tpml_standard_scaler_fit(struct tpml_TpmlStandardScaler *h,
+                                              const double *data,
+                                              uintptr_t rows,
+                                              uintptr_t cols);
+
+/**
+ * Transforms a row-major `rows × cols` matrix. `out` receives `rows × out_cols` values.
+ *
+ * # Safety
+ * `data` is valid for `rows * cols` reads and `out` for `out_len` writes.
+ */
+enum tpml_TpmlStatus tpml_standard_scaler_transform(const struct tpml_TpmlStandardScaler *h,
+                                                    const double *data,
+                                                    uintptr_t rows,
+                                                    uintptr_t cols,
+                                                    double *out,
+                                                    uintptr_t out_len);
+
+/**
+ * Writes the number of values per output row into `out`.
+ *
+ * # Safety
+ * `h` is a live handle and `out` valid for one write.
+ */
+enum tpml_TpmlStatus tpml_standard_scaler_out_cols(const struct tpml_TpmlStandardScaler *h,
+                                                   uintptr_t *out);
+
+/**
+ * Creates a min-max scaler. Free it with `tpml_min_max_scaler_free`.
+ */
+struct tpml_TpmlMinMaxScaler *tpml_min_max_scaler_new(void);
+
+/**
+ * Frees a min-max scaler handle. Null is ignored.
+ *
+ * # Safety
+ * `h` must be null or a live handle from `tpml_min_max_scaler_new`.
+ */
+void tpml_min_max_scaler_free(struct tpml_TpmlMinMaxScaler *h);
+
+/**
+ * Learns the per-feature range from a row-major `rows × cols` matrix.
+ *
+ * # Safety
+ * `data` is valid for `rows * cols` reads.
+ */
+enum tpml_TpmlStatus tpml_min_max_scaler_fit(struct tpml_TpmlMinMaxScaler *h,
+                                             const double *data,
+                                             uintptr_t rows,
+                                             uintptr_t cols);
+
+/**
+ * Transforms a row-major `rows × cols` matrix. `out` receives `rows × out_cols` values.
+ *
+ * # Safety
+ * `data` is valid for `rows * cols` reads and `out` for `out_len` writes.
+ */
+enum tpml_TpmlStatus tpml_min_max_scaler_transform(const struct tpml_TpmlMinMaxScaler *h,
+                                                   const double *data,
+                                                   uintptr_t rows,
+                                                   uintptr_t cols,
+                                                   double *out,
+                                                   uintptr_t out_len);
+
+/**
+ * Writes the number of values per output row into `out`.
+ *
+ * # Safety
+ * `h` is a live handle and `out` valid for one write.
+ */
+enum tpml_TpmlStatus tpml_min_max_scaler_out_cols(const struct tpml_TpmlMinMaxScaler *h,
+                                                  uintptr_t *out);
+
+/**
+ * Creates a robust scaler. Free it with `tpml_robust_scaler_free`.
+ */
+struct tpml_TpmlRobustScaler *tpml_robust_scaler_new(void);
+
+/**
+ * Frees a robust scaler handle. Null is ignored.
+ *
+ * # Safety
+ * `h` must be null or a live handle from `tpml_robust_scaler_new`.
+ */
+void tpml_robust_scaler_free(struct tpml_TpmlRobustScaler *h);
+
+/**
+ * Learns the per-feature median and interquartile range from a row-major `rows × cols` matrix.
+ *
+ * # Safety
+ * `data` is valid for `rows * cols` reads.
+ */
+enum tpml_TpmlStatus tpml_robust_scaler_fit(struct tpml_TpmlRobustScaler *h,
+                                            const double *data,
+                                            uintptr_t rows,
+                                            uintptr_t cols);
+
+/**
+ * Transforms a row-major `rows × cols` matrix. `out` receives `rows × out_cols` values.
+ *
+ * # Safety
+ * `data` is valid for `rows * cols` reads and `out` for `out_len` writes.
+ */
+enum tpml_TpmlStatus tpml_robust_scaler_transform(const struct tpml_TpmlRobustScaler *h,
+                                                  const double *data,
+                                                  uintptr_t rows,
+                                                  uintptr_t cols,
+                                                  double *out,
+                                                  uintptr_t out_len);
+
+/**
+ * Writes the number of values per output row into `out`.
+ *
+ * # Safety
+ * `h` is a live handle and `out` valid for one write.
+ */
+enum tpml_TpmlStatus tpml_robust_scaler_out_cols(const struct tpml_TpmlRobustScaler *h,
+                                                 uintptr_t *out);
+
+/**
+ * Creates a one-hot encoder. Free it with `tpml_one_hot_encoder_free`.
+ */
+struct tpml_TpmlOneHotEncoder *tpml_one_hot_encoder_new(void);
+
+/**
+ * Frees a one-hot encoder handle. Null is ignored.
+ *
+ * # Safety
+ * `h` must be null or a live handle from `tpml_one_hot_encoder_new`.
+ */
+void tpml_one_hot_encoder_free(struct tpml_TpmlOneHotEncoder *h);
+
+/**
+ * Learns the categories of each column from a row-major `rows × cols` matrix.
+ *
+ * # Safety
+ * `data` is valid for `rows * cols` reads.
+ */
+enum tpml_TpmlStatus tpml_one_hot_encoder_fit(struct tpml_TpmlOneHotEncoder *h,
+                                              const double *data,
+                                              uintptr_t rows,
+                                              uintptr_t cols);
+
+/**
+ * Encodes a row-major `rows × cols` matrix. `out` receives `rows × out_cols` indicators.
+ *
+ * # Safety
+ * `data` is valid for `rows * cols` reads and `out` for `out_len` writes.
+ */
+enum tpml_TpmlStatus tpml_one_hot_encoder_transform(const struct tpml_TpmlOneHotEncoder *h,
+                                                    const double *data,
+                                                    uintptr_t rows,
+                                                    uintptr_t cols,
+                                                    double *out,
+                                                    uintptr_t out_len);
+
+/**
+ * Writes the number of indicator columns into `out`: the total number of categories.
+ *
+ * # Safety
+ * `h` is a live handle and `out` valid for one write.
+ */
+enum tpml_TpmlStatus tpml_one_hot_encoder_out_cols(const struct tpml_TpmlOneHotEncoder *h,
+                                                   uintptr_t *out);
+
+/**
+ * Creates an ordinal encoder. Free it with `tpml_ordinal_encoder_free`.
+ */
+struct tpml_TpmlOrdinalEncoder *tpml_ordinal_encoder_new(void);
+
+/**
+ * Frees an ordinal encoder handle. Null is ignored.
+ *
+ * # Safety
+ * `h` must be null or a live handle from `tpml_ordinal_encoder_new`.
+ */
+void tpml_ordinal_encoder_free(struct tpml_TpmlOrdinalEncoder *h);
+
+/**
+ * Learns the categories of each column from a row-major `rows × cols` matrix.
+ *
+ * # Safety
+ * `data` is valid for `rows * cols` reads.
+ */
+enum tpml_TpmlStatus tpml_ordinal_encoder_fit(struct tpml_TpmlOrdinalEncoder *h,
+                                              const double *data,
+                                              uintptr_t rows,
+                                              uintptr_t cols);
+
+/**
+ * Encodes a row-major `rows × cols` matrix. `out` receives `rows × cols` indices.
+ *
+ * # Safety
+ * `data` is valid for `rows * cols` reads and `out` for `out_len` writes.
+ */
+enum tpml_TpmlStatus tpml_ordinal_encoder_transform(const struct tpml_TpmlOrdinalEncoder *h,
+                                                    const double *data,
+                                                    uintptr_t rows,
+                                                    uintptr_t cols,
+                                                    double *out,
+                                                    uintptr_t out_len);
+
+/**
+ * Writes the number of values per output row into `out`: one per input column.
+ *
+ * # Safety
+ * `h` is a live handle and `out` valid for one write.
+ */
+enum tpml_TpmlStatus tpml_ordinal_encoder_out_cols(const struct tpml_TpmlOrdinalEncoder *h,
+                                                   uintptr_t *out);
+
+/**
+ * Creates an imputer. `fill_value` is used only by the `Constant` strategy. Free it with
+ * `tpml_simple_imputer_free`.
+ */
+struct tpml_TpmlSimpleImputer *tpml_simple_imputer_new(enum tpml_TpmlImputeStrategy strategy,
+                                                       double fill_value);
+
+/**
+ * Frees an imputer handle. Null is ignored.
+ *
+ * # Safety
+ * `h` must be null or a live handle from `tpml_simple_imputer_new`.
+ */
+void tpml_simple_imputer_free(struct tpml_TpmlSimpleImputer *h);
+
+/**
+ * Learns the fill values from a row-major `rows × cols` matrix. NaN entries are ignored.
+ *
+ * # Safety
+ * `data` is valid for `rows * cols` reads.
+ */
+enum tpml_TpmlStatus tpml_simple_imputer_fit(struct tpml_TpmlSimpleImputer *h,
+                                             const double *data,
+                                             uintptr_t rows,
+                                             uintptr_t cols);
+
+/**
+ * Replaces NaN entries of a row-major `rows × cols` matrix. `out` receives `rows × cols` values.
+ *
+ * # Safety
+ * `data` is valid for `rows * cols` reads and `out` for `out_len` writes.
+ */
+enum tpml_TpmlStatus tpml_simple_imputer_transform(const struct tpml_TpmlSimpleImputer *h,
+                                                   const double *data,
+                                                   uintptr_t rows,
+                                                   uintptr_t cols,
+                                                   double *out,
+                                                   uintptr_t out_len);
+
+/**
+ * Writes the number of values per output row into `out`: the input width.
+ *
+ * # Safety
+ * `h` is a live handle and `out` valid for one write.
+ */
+enum tpml_TpmlStatus tpml_simple_imputer_out_cols(const struct tpml_TpmlSimpleImputer *h,
+                                                  uintptr_t *out);
+
+/**
+ * Creates a regression tree. Returns null if `max_depth` or `min_samples_leaf` is zero.
+ */
+struct tpml_TpmlDecisionTreeRegressor *tpml_decision_tree_regressor_new(uintptr_t max_depth,
+                                                                        uintptr_t min_samples_leaf);
+
+/**
+ * Frees a regression tree handle. Null is ignored.
+ *
+ * # Safety
+ * `h` must be null or a live handle from `tpml_decision_tree_regressor_new`.
+ */
+void tpml_decision_tree_regressor_free(struct tpml_TpmlDecisionTreeRegressor *h);
+
+/**
+ * Fits to a row-major `rows × cols` matrix and `rows` targets.
+ *
+ * # Safety
+ * `data` is valid for `rows * cols` reads and `y` for `rows` reads.
+ */
+enum tpml_TpmlStatus tpml_decision_tree_regressor_fit(struct tpml_TpmlDecisionTreeRegressor *h,
+                                                      const double *data,
+                                                      uintptr_t rows,
+                                                      uintptr_t cols,
+                                                      const double *y);
+
+/**
+ * Predicts for a row-major `rows × cols` matrix. `out` receives `rows` values.
+ *
+ * # Safety
+ * `data` is valid for `rows * cols` reads and `out` for `out_len` writes.
+ */
+enum tpml_TpmlStatus tpml_decision_tree_regressor_predict(const struct tpml_TpmlDecisionTreeRegressor *h,
+                                                          const double *data,
+                                                          uintptr_t rows,
+                                                          uintptr_t cols,
+                                                          double *out,
+                                                          uintptr_t out_len);
+
+/**
+ * Creates a classification tree. Returns null if `max_depth` or `min_samples_leaf` is zero.
+ */
+struct tpml_TpmlDecisionTreeClassifier *tpml_decision_tree_classifier_new(uintptr_t max_depth,
+                                                                          uintptr_t min_samples_leaf,
+                                                                          enum tpml_TpmlCriterion criterion);
+
+/**
+ * Frees a classification tree handle. Null is ignored.
+ *
+ * # Safety
+ * `h` must be null or a live handle from `tpml_decision_tree_classifier_new`.
+ */
+void tpml_decision_tree_classifier_free(struct tpml_TpmlDecisionTreeClassifier *h);
+
+/**
+ * Fits to a row-major `rows × cols` matrix and `rows` class labels.
+ *
+ * # Safety
+ * `data` is valid for `rows * cols` reads and `y` for `rows` reads.
+ */
+enum tpml_TpmlStatus tpml_decision_tree_classifier_fit(struct tpml_TpmlDecisionTreeClassifier *h,
+                                                       const double *data,
+                                                       uintptr_t rows,
+                                                       uintptr_t cols,
+                                                       const double *y);
+
+/**
+ * Predicts class labels for a row-major `rows × cols` matrix. `out` receives `rows` values.
+ *
+ * # Safety
+ * `data` is valid for `rows * cols` reads and `out` for `out_len` writes.
+ */
+enum tpml_TpmlStatus tpml_decision_tree_classifier_predict(const struct tpml_TpmlDecisionTreeClassifier *h,
+                                                           const double *data,
+                                                           uintptr_t rows,
+                                                           uintptr_t cols,
+                                                           double *out,
+                                                           uintptr_t out_len);
+
+/**
+ * Writes the number of training classes into `out`.
+ *
+ * # Safety
+ * `h` is a live handle and `out` valid for one write.
+ */
+enum tpml_TpmlStatus tpml_decision_tree_classifier_n_classes(const struct tpml_TpmlDecisionTreeClassifier *h,
+                                                             uintptr_t *out);
+
+/**
+ * Writes the class labels, sorted, into `out`. `out_len` must equal the class count.
+ *
+ * # Safety
+ * `h` is a live handle and `out` valid for `out_len` writes.
+ */
+enum tpml_TpmlStatus tpml_decision_tree_classifier_classes(const struct tpml_TpmlDecisionTreeClassifier *h,
+                                                           double *out,
+                                                           uintptr_t out_len);
+
+/**
+ * Creates a gradient boosting regressor. Returns null for an invalid setting: zero trees,
+ * depth or leaf size, a learning rate outside `(0, 1]`, or a subsample outside `(0, 1]`.
+ * `max_features` of zero means all features.
+ */
+struct tpml_TpmlGradientBoosting *tpml_gradient_boosting_new(uintptr_t n_estimators,
+                                                             double learning_rate,
+                                                             uintptr_t max_depth,
+                                                             uintptr_t min_samples_leaf,
+                                                             double subsample,
+                                                             uintptr_t max_features,
+                                                             uint64_t seed);
+
+/**
+ * Frees a gradient boosting handle. Null is ignored.
+ *
+ * # Safety
+ * `h` must be null or a live handle from `tpml_gradient_boosting_new`.
+ */
+void tpml_gradient_boosting_free(struct tpml_TpmlGradientBoosting *h);
+
+/**
+ * Fits to a row-major `rows × cols` matrix and `rows` targets.
+ *
+ * # Safety
+ * `data` is valid for `rows * cols` reads and `y` for `rows` reads.
+ */
+enum tpml_TpmlStatus tpml_gradient_boosting_fit(struct tpml_TpmlGradientBoosting *h,
+                                                const double *data,
+                                                uintptr_t rows,
+                                                uintptr_t cols,
+                                                const double *y);
+
+/**
+ * Predicts for a row-major `rows × cols` matrix. `out` receives `rows` values.
+ *
+ * # Safety
+ * `data` is valid for `rows * cols` reads and `out` for `out_len` writes.
+ */
+enum tpml_TpmlStatus tpml_gradient_boosting_predict(const struct tpml_TpmlGradientBoosting *h,
+                                                    const double *data,
+                                                    uintptr_t rows,
+                                                    uintptr_t cols,
+                                                    double *out,
+                                                    uintptr_t out_len);
+
+/**
+ * Creates a random forest regressor. Returns null if `n_estimators`, `max_depth` or
+ * `min_samples_leaf` is zero. `max_features` of zero means all features.
+ */
+struct tpml_TpmlRandomForestRegressor *tpml_random_forest_regressor_new(uintptr_t n_estimators,
+                                                                        uintptr_t max_depth,
+                                                                        uintptr_t min_samples_leaf,
+                                                                        uintptr_t max_features,
+                                                                        uint64_t seed);
+
+/**
+ * Frees a random forest regressor handle. Null is ignored.
+ *
+ * # Safety
+ * `h` must be null or a live handle from `tpml_random_forest_regressor_new`.
+ */
+void tpml_random_forest_regressor_free(struct tpml_TpmlRandomForestRegressor *h);
+
+/**
+ * Fits to a row-major `rows × cols` matrix and `rows` targets.
+ *
+ * # Safety
+ * `data` is valid for `rows * cols` reads and `y` for `rows` reads.
+ */
+enum tpml_TpmlStatus tpml_random_forest_regressor_fit(struct tpml_TpmlRandomForestRegressor *h,
+                                                      const double *data,
+                                                      uintptr_t rows,
+                                                      uintptr_t cols,
+                                                      const double *y);
+
+/**
+ * Predicts for a row-major `rows × cols` matrix. `out` receives `rows` values.
+ *
+ * # Safety
+ * `data` is valid for `rows * cols` reads and `out` for `out_len` writes.
+ */
+enum tpml_TpmlStatus tpml_random_forest_regressor_predict(const struct tpml_TpmlRandomForestRegressor *h,
+                                                          const double *data,
+                                                          uintptr_t rows,
+                                                          uintptr_t cols,
+                                                          double *out,
+                                                          uintptr_t out_len);
+
+/**
+ * Creates a random forest classifier. Returns null if `n_estimators`, `max_depth` or
+ * `min_samples_leaf` is zero. `max_features` of zero means the square root of the feature count.
+ */
+struct tpml_TpmlRandomForestClassifier *tpml_random_forest_classifier_new(uintptr_t n_estimators,
+                                                                          uintptr_t max_depth,
+                                                                          uintptr_t min_samples_leaf,
+                                                                          enum tpml_TpmlCriterion criterion,
+                                                                          uintptr_t max_features,
+                                                                          uint64_t seed);
+
+/**
+ * Frees a random forest classifier handle. Null is ignored.
+ *
+ * # Safety
+ * `h` must be null or a live handle from `tpml_random_forest_classifier_new`.
+ */
+void tpml_random_forest_classifier_free(struct tpml_TpmlRandomForestClassifier *h);
+
+/**
+ * Fits to a row-major `rows × cols` matrix and `rows` class labels.
+ *
+ * # Safety
+ * `data` is valid for `rows * cols` reads and `y` for `rows` reads.
+ */
+enum tpml_TpmlStatus tpml_random_forest_classifier_fit(struct tpml_TpmlRandomForestClassifier *h,
+                                                       const double *data,
+                                                       uintptr_t rows,
+                                                       uintptr_t cols,
+                                                       const double *y);
+
+/**
+ * Predicts class labels for a row-major `rows × cols` matrix. `out` receives `rows` values.
+ *
+ * # Safety
+ * `data` is valid for `rows * cols` reads and `out` for `out_len` writes.
+ */
+enum tpml_TpmlStatus tpml_random_forest_classifier_predict(const struct tpml_TpmlRandomForestClassifier *h,
+                                                           const double *data,
+                                                           uintptr_t rows,
+                                                           uintptr_t cols,
+                                                           double *out,
+                                                           uintptr_t out_len);
+
+/**
+ * Fraction of rows of a row-major matrix whose predicted label equals the label in `y`.
+ *
+ * # Safety
+ * `data` is valid for `rows * cols` reads, and `y` for `rows` reads.
+ */
+enum tpml_TpmlStatus tpml_random_forest_classifier_score(const struct tpml_TpmlRandomForestClassifier *h,
+                                                         const double *data,
+                                                         uintptr_t rows,
+                                                         uintptr_t cols,
+                                                         const double *y,
+                                                         double *out);
 
 #endif  /* TPT_ML_PROVEN_H */

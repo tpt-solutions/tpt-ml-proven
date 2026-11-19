@@ -1,0 +1,14 @@
+# pkg-config template for the C library. Fill in the three @...@ values at install time:
+#   @PREFIX@   the install prefix, for example /usr/local
+#   @VERSION@  the library version (tpml_version() reports it)
+# Installed as tpt-ml-proven.pc, then `pkg-config --cflags --libs tpt-ml-proven` works.
+
+prefix=@PREFIX@
+libdir=${prefix}/lib
+includedir=${prefix}/include
+
+Name: tpt-ml-proven
+Description: Classical machine learning with contract-checked algorithms (C ABI)
+Version: @VERSION@
+Libs: -L${libdir} -ltpt_ml_proven
+Cflags: -I${includedir}

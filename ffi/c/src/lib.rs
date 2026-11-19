@@ -25,6 +25,8 @@ use tpt_ml_proven_core::{DenseView, Predictor, Transformer, UnsupervisedEstimato
 use tpt_ml_proven_decomposition::Pca;
 
 mod models;
+mod preprocessing;
+mod trees;
 
 /// Result of a call. `Ok` is zero.
 #[repr(C)]
@@ -52,6 +54,13 @@ fn set_error(msg: &str) {
     let safe = msg.replace('\0', " ");
     let c = CString::new(safe).unwrap_or_default();
     LAST_ERROR.with(|e| *e.borrow_mut() = c);
+}
+
+/// The library version as a NUL-terminated string, for example "0.0.0". The pointer is
+/// static and never freed.
+#[no_mangle]
+pub extern "C" fn tpml_version() -> *const c_char {
+    concat!(env!("CARGO_PKG_VERSION"), "\0").as_ptr().cast()
 }
 
 /// Message for the most recent failure on this thread, as a NUL-terminated string.

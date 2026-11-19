@@ -163,6 +163,12 @@ jobs:
       - run: cargo install cbindgen --locked
       - run: cbindgen --config cbindgen.toml --crate tpt-ml-proven-c --output include/tpt_ml_proven.h
       - run: git diff --exit-code -- include/tpt_ml_proven.h
+      # The C example compiles against the header and runs against the release library.
+      - run: cargo build --release
+      - run: cc -std=c99 -Wall -Wextra -Werror -Iinclude examples/main.c -Ltarget/release -ltpt_ml_proven -o target/kmeans_example
+      - run: ./target/kmeans_example
+        env:
+          LD_LIBRARY_PATH: target/release
 
   # KMeans benchmark against scikit-learn, as a report only: it never fails the build, and the
   # numbers depend on the runner. Results go to the job summary and an uploaded artifact.

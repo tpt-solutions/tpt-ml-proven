@@ -21,7 +21,7 @@ use tpt_ml_proven_linear::{ElasticNet, Lasso, LogisticRegression, MulticlassLogi
 use super::{input, output, run, Failure, TpmlStatus};
 
 /// The handle is null.
-fn null_handle() -> Failure {
+pub(crate) fn null_handle() -> Failure {
     Failure::new(TpmlStatus::NullPointer, "handle is null")
 }
 
@@ -29,7 +29,7 @@ fn null_handle() -> Failure {
 ///
 /// # Safety
 /// `y` must be valid for reads of `rows` `f64` values.
-unsafe fn targets<'a>(y: *const f64, rows: usize) -> Result<&'a [f64], Failure> {
+pub(crate) unsafe fn targets<'a>(y: *const f64, rows: usize) -> Result<&'a [f64], Failure> {
     input(y, rows, 1)
 }
 
