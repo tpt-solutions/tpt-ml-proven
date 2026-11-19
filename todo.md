@@ -96,12 +96,12 @@ Dependency rule: runtime deps must be MIT, MIT/Apache-2.0 dual, BSD, ISC, Zlib, 
 - [x] **Python:** PyO3 + maturin, abi3 wheels for Python 3.9+ (built as `cp39-abi3`); scikit-learn-style API, with `fit` returning self (`KMeans(n_clusters=8).fit(X).predict(X)`)
 - [x] Python: zero-copy NumPy input via `__array_interface__` (the buffer protocol is not in the stable ABI); GIL released during `fit`
 - [ ] Python: wheels for Linux, macOS, Windows installable without a C compiler (test in clean containers/VMs). Windows build works locally; Linux/macOS and clean-VM installs not yet tested
-- [ ] **Go:** cgo package at `ffi/go` (module `github.com/tpt-solutions/tpt-ml-proven/ffi/go`), Go 1.21+, idiomatic API (`NewKMeans`, `Fit`, `Predict`)
+- [x] **Go:** cgo package at `ffi/go` (module `github.com/tpt-solutions/tpt-ml-proven/ffi/go`), Go 1.21+, idiomatic API (`NewKMeans`, `Fit`, `Predict`). KMeans and PCA over the C ABI, with options and `Close`. Phase 8 estimators not yet in Go
 - [ ] Go: prebuilt static libs / headers so builds need no cgo gymnastics
 - [x] **WASM:** wasm-bindgen / wasm-pack build exposing KMeans and PCA (`ffi/wasm`, Node target)
-- [x] Binding tests for Python (12) and WASM (7), including f32/f64 and error propagation. Go: not yet (see below)
-- [x] Usage examples for Python and WASM (`ffi/python/README.md`, `ffi/wasm/README.md`). Go: not yet
-- [ ] CI jobs building and testing all three bindings. Added: Python wheel on Linux, macOS and Windows (pytest); WASM (Node tests); C ABI (tests and header check). Go job pending the Go package. Go is blocked locally: no C compiler on this machine and `CGO_ENABLED=0`
+- [x] Binding tests for Python (12 for KMeans and PCA, plus 11 for the Phase 8 estimators), WASM (7 plus 7 for Phase 8), and Go (6), including f32/f64 and error propagation
+- [x] Usage examples for Python, WASM and Go (`ffi/python/README.md`, `ffi/wasm/README.md`, `ffi/go/README.md`)
+- [ ] CI jobs building and testing all three bindings. Added: Python wheel on Linux, macOS and Windows (pytest); WASM (Node tests); C ABI (tests and header check); Go (`go-bindings` job, Linux). Not yet run on GitHub. Locally, Go tests pass on Windows, linking the GNU build of the C library through the MSYS2 MinGW gcc
 
 **Done when:** KMeans and PCA run from Python, Go and WASM in CI on all three OSes.
 

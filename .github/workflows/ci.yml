@@ -202,3 +202,22 @@ jobs:
         with:
           name: kmeans-benchmark
           path: target/bench/*.json
+
+  # Go package over the C ABI. Linux only here: cgo links the Rust static library built by cargo.
+  go-bindings:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ffi/go
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ffi/c
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.21"
+      - run: cargo build --release --manifest-path ../c/Cargo.toml
+      - run: go vet ./...
+      - run: go test -count=1 ./...
