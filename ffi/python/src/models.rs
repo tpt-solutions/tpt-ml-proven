@@ -266,14 +266,21 @@ impl PyNmf {
     fn components_(&self) -> PyResult<Vec<Vec<f64>>> {
         let m = self.fitted.as_ref().ok_or_else(not_fitted)?;
         let h = m.components().unwrap_or(&[]);
-        let cols = if self.n_components == 0 { 0 } else { h.len() / self.n_components };
+        let cols = if self.n_components == 0 {
+            0
+        } else {
+            h.len() / self.n_components
+        };
         Ok(h.chunks(cols.max(1)).map(<[f64]>::to_vec).collect())
     }
 
     /// Multiplicative-update iterations used.
     #[getter]
     fn n_iter_(&self) -> PyResult<usize> {
-        self.fitted.as_ref().and_then(|m| m.n_iter()).ok_or_else(not_fitted)
+        self.fitted
+            .as_ref()
+            .and_then(|m| m.n_iter())
+            .ok_or_else(not_fitted)
     }
 
     /// Frobenius norm of `X − WH` at the end of the fit.
@@ -439,7 +446,10 @@ impl PyLogisticRegression {
         classes.dedup();
 
         let state = if classes.len() == 2 {
-            let y01: Vec<f64> = y.iter().map(|&v| if v == classes[1] { 1.0 } else { 0.0 }).collect();
+            let y01: Vec<f64> = y
+                .iter()
+                .map(|&v| if v == classes[1] { 1.0 } else { 0.0 })
+                .collect();
             let fitted = py.detach(move || -> Result<LogisticRegression<f64>, Error> {
                 let mut m = LogisticRegression::<f64>::new(cc)
                     .with_max_iter(max_iter)

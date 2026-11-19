@@ -97,10 +97,7 @@ fn matrix_from(py: Python<'_>, obj: &Bound<'_, PyAny>) -> PyResult<Matrix> {
         }
     };
 
-    let shape: Vec<usize> = dict
-        .get_item("shape")?
-        .ok_or_else(shape_error)?
-        .extract()?;
+    let shape: Vec<usize> = dict.get_item("shape")?.ok_or_else(shape_error)?.extract()?;
     if shape.len() != 2 {
         return Err(shape_error());
     }
