@@ -97,6 +97,12 @@ pub mod kind {
     pub const RANDOM_FOREST_CLASSIFIER: u32 = 21;
     /// `GradientBoostingRegressor` with subsample, max_features and seed (kind 9 has none).
     pub const GRADIENT_BOOSTING_SAMPLED: u32 = 22;
+    /// `Dbscan`.
+    pub const DBSCAN: u32 = 23;
+    /// `Hdbscan`.
+    pub const HDBSCAN: u32 = 24;
+    /// A binary `LogisticRegression` with the two labels it was trained on.
+    pub const LOGISTIC_LABELLED: u32 = 25;
 }
 
 /// Header length of a version 1 file: magic, version, kind.
@@ -180,6 +186,12 @@ impl Writer {
         for &v in values {
             self.usize(v);
         }
+    }
+
+    /// Writes a length, then the bytes themselves.
+    pub fn bytes(&mut self, values: &[u8]) {
+        self.usize(values.len());
+        self.buf.extend_from_slice(values);
     }
 
     /// Writes a length, then each row as a length-prefixed slice of values.
@@ -318,6 +330,15 @@ impl<'a> Reader<'a> {
             return Err(format_error("slice length exceeds the data in the file"));
         }
         (0..n).map(|_| self.usize()).collect()
+    }
+
+    /// Reads a length, then that many bytes.
+    pub fn bytes(&mut self) -> Result<Vec<u8>, Error> {
+        let n = self.usize()?;
+        if n > self.payload.len() - self.pos {
+            return Err(format_error("byte string exceeds the data in the file"));
+        }
+        Ok(self.take(n)?.to_vec())
     }
 
     /// Reads a length, then that many length-prefixed rows of values.

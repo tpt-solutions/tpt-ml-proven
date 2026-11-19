@@ -12,6 +12,7 @@
 pub mod dbscan;
 pub mod hdbscan;
 pub mod kmeans;
+mod persist;
 mod rng;
 
 pub use dbscan::Dbscan;

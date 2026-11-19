@@ -23,10 +23,10 @@ pub const NOISE: i64 = -1;
 /// DBSCAN estimator. Build with [`Dbscan::new`], then call `fit`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Dbscan<F: Float> {
-    eps: F,
-    min_samples: usize,
-    labels: Option<Vec<i64>>,
-    core: Option<Vec<usize>>,
+    pub(crate) eps: F,
+    pub(crate) min_samples: usize,
+    pub(crate) labels: Option<Vec<i64>>,
+    pub(crate) core: Option<Vec<usize>>,
 }
 
 impl<F: Float> Dbscan<F> {
@@ -153,6 +153,20 @@ impl<F: Float> UnsupervisedEstimator for Dbscan<F> {
         self.labels = Some(labels);
         self.core = Some(core);
         Ok(())
+    }
+}
+
+// ---------------------------------------------------------------- settings
+
+impl<F: Float> Dbscan<F> {
+    /// The neighbourhood radius the model was configured with.
+    pub fn eps(&self) -> f64 {
+        self.eps.to_f64()
+    }
+
+    /// The minimum neighbourhood size the model was configured with.
+    pub fn min_samples(&self) -> usize {
+        self.min_samples
     }
 }
 

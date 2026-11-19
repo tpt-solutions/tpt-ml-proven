@@ -45,9 +45,9 @@ struct Condensed {
 /// HDBSCAN clustering with excess-of-mass cluster selection.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Hdbscan<F: Float> {
-    min_cluster_size: usize,
-    min_samples: Option<usize>,
-    labels: Option<Vec<i64>>,
+    pub(crate) min_cluster_size: usize,
+    pub(crate) min_samples: Option<usize>,
+    pub(crate) labels: Option<Vec<i64>>,
     marker: core::marker::PhantomData<F>,
 }
 
@@ -388,6 +388,20 @@ impl<F: Float> UnsupervisedEstimator for Hdbscan<F> {
         );
         self.labels = Some(labels);
         Ok(())
+    }
+}
+
+// ---------------------------------------------------------------- settings
+
+impl<F: Float> Hdbscan<F> {
+    /// The minimum cluster size the model was configured with.
+    pub fn min_cluster_size(&self) -> usize {
+        self.min_cluster_size
+    }
+
+    /// The `min_samples` the model was configured with, or `None` for its default.
+    pub fn min_samples(&self) -> Option<usize> {
+        self.min_samples
     }
 }
 
