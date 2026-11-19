@@ -3,10 +3,13 @@ name = "tpt-ml-proven-preprocessing"
 description = "Preprocessing transformers for tpt-ml-proven (scalers, encoders, imputers)."
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 authors.workspace = true
 repository.workspace = true
-readme = "../../README.md"
+readme = "README.md"
+keywords = ["scaler", "encoder", "imputer", "preprocessing", "machine-learning"]
+categories = ["algorithms", "science"]
 
 [dependencies]
 tpt-ml-proven-core.workspace = true

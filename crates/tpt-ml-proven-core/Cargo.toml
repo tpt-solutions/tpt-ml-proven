@@ -3,6 +3,7 @@ name = "tpt-ml-proven-core"
 description = "Estimator traits, contract glue and shared errors for tpt-ml-proven (no_std + alloc)."
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 authors.workspace = true
 repository.workspace = true
@@ -19,3 +20,6 @@ runtime-contracts = []
 
 [lints]
 workspace = true
+
+[package.metadata.docs.rs]
+all-features = true

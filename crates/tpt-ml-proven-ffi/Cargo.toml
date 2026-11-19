@@ -3,9 +3,12 @@ name = "tpt-ml-proven-ffi"
 description = "FFI glue (PyO3 and cgo/C ABI) for tpt-ml-proven. Bindings are generated, not hand-written."
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 authors.workspace = true
 repository.workspace = true
+# Empty placeholder: the bindings live in ffi/. Not published.
+publish = false
 readme = "README.md"
 keywords = ["ffi", "python", "pyo3", "wasm", "cgo"]
 categories = ["external-ffi-bindings", "development-tools::ffi", "wasm"]
