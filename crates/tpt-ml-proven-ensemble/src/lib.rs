@@ -105,6 +105,7 @@ pub struct StumpForest<F: Float> {
     n_estimators: usize,
     seed: u64,
     fitted: Option<Vec<Stump>>,
+    n_features: usize,
     marker: core::marker::PhantomData<F>,
 }
 
@@ -115,6 +116,7 @@ impl<F: Float> StumpForest<F> {
             n_estimators,
             seed: 0,
             fitted: None,
+            n_features: 0,
             marker: core::marker::PhantomData,
         }
     }
@@ -203,6 +205,7 @@ impl<F: Float> SupervisedEstimator for StumpForest<F> {
             "stump_forest.predicts_training_class"
         );
         self.fitted = Some(stumps);
+        self.n_features = cols;
         Ok(())
     }
 }
@@ -218,7 +221,7 @@ impl<F: Float> Predictor for StumpForest<F> {
     {
         let stumps = self.fitted.as_ref().ok_or(Error::NotFitted)?;
         let cols = x.cols();
-        if stumps.iter().any(|s| s.feature >= cols) {
+        if cols != self.n_features {
             return Err(Error::Shape(ShapeError {
                 rows: x.rows(),
                 cols,
@@ -285,6 +288,23 @@ mod tests {
             f
         };
         assert_eq!(fit(3), fit(3));
+    }
+
+    #[test]
+    fn predicting_with_a_different_width_is_a_shape_error() {
+        let (x, y) = separable();
+        let mut f = StumpForest::<f64>::new(25).with_seed(7);
+        SupervisedEstimator::fit(&mut f, DenseView::new(&x, 40, 2).unwrap(), &y[..]).unwrap();
+        // Wider input: the stumps only read the first two columns, so this used to pass silently.
+        let wide: Vec<f64> = (0..40 * 3).map(|i| i as f64).collect();
+        assert!(matches!(
+            Predictor::predict(&f, DenseView::new(&wide, 40, 3).unwrap()),
+            Err(Error::Shape(_))
+        ));
+        assert!(matches!(
+            Predictor::predict(&f, DenseView::new(&x[..2], 2, 1).unwrap()),
+            Err(Error::Shape(_))
+        ));
     }
 
     #[test]
