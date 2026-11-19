@@ -59,12 +59,17 @@ extern crate alloc;
 pub mod contract;
 pub mod error;
 pub mod float;
+pub mod metrics;
+pub mod model_selection;
 pub mod persist;
+pub mod pipeline;
+pub mod rng;
 pub mod toy;
 pub mod traits;
 pub mod view;
 
 pub use error::{ContractKind, ContractViolation, Error, FitError, ShapeError};
 pub use float::Float;
+pub use pipeline::{Pipeline, Then};
 pub use traits::{Predictor, SupervisedEstimator, Transformer, UnsupervisedEstimator};
 pub use view::{ArrayView, CsrView, Dense, DenseView, TargetView};
