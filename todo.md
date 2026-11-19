@@ -107,7 +107,7 @@ Dependency rule: runtime deps must be MIT, MIT/Apache-2.0 dual, BSD, ISC, Zlib, 
 
 ## Phase 7 — v0.1 release
 - [ ] README with one-paragraph verification story
-- [ ] API docs (rustdoc), usage guide, contract docs
+- [x] API docs (rustdoc, builds warning-free with `-D warnings`), usage guide (`docs/usage.md`), contract docs (`docs/contracts/README.md`)
 - [ ] CHANGELOG
 - [ ] Success-criteria sign-off (spec §10):
   - [ ] KMeans and PCA match scikit-learn vectors within 1e-9
@@ -116,7 +116,7 @@ Dependency rule: runtime deps must be MIT, MIT/Apache-2.0 dual, BSD, ISC, Zlib, 
   - [ ] Go package builds without cgo header gymnastics
   - [ ] KMeans 1M × 50 f32 ≥ 2× faster than scikit-learn
   - [ ] README explains verification in one paragraph
-- [ ] Final cargo-deny license audit (no Apache-only deps)
+- [ ] Final cargo-deny license audit (no Apache-only deps) — `cargo deny check` passes locally on the root workspace (advisories, bans, licenses); the bindings are separate workspaces with their own `deny.toml`. Re-run before release
 - [ ] Publish crates to crates.io (core → algorithm crates → ffi)
 - [ ] Publish wheels to PyPI (trusted publishing)
 - [ ] Tag `v0.1.0` and create GitHub release (Go module picks up the tag)
