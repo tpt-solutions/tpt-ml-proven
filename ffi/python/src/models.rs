@@ -431,6 +431,12 @@ macro_rules! regression_class {
         impl $ident {
             $ctor
 
+            /// Coefficient of determination R² of the predictions for `x` against `y`.
+            fn score(&self, py: Python<'_>, x: &Bound<'_, PyAny>, y: Vec<f64>) -> PyResult<f64> {
+                let pred = self.predict(py, x)?;
+                tpt_ml_proven_core::metrics::r2(&y, &pred).map_err(to_py_err)
+            }
+
                 /// Serialises the fitted model to bytes, in the tpt-ml-proven model file format.
                 fn to_bytes<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyBytes>> {
                     Ok(PyBytes::new(py, &self.encode()?))
@@ -579,6 +585,12 @@ pub struct PyLogisticRegression {
 
 #[pymethods]
 impl PyLogisticRegression {
+    /// Fraction of rows of `x` whose predicted label equals the label in `y`.
+    fn score(&self, py: Python<'_>, x: &Bound<'_, PyAny>, y: Vec<f64>) -> PyResult<f64> {
+        let pred = self.predict(py, x)?;
+        tpt_ml_proven_core::metrics::accuracy(&y, &pred).map_err(to_py_err)
+    }
+
     #[new]
     #[allow(non_snake_case)]
     #[pyo3(signature = (C=1.0, *, max_iter=100, tol=1e-4))]
@@ -714,6 +726,12 @@ impl PyStumpForest {
 
 #[pymethods]
 impl PyStumpForest {
+    /// Fraction of rows of `x` whose predicted label equals the label in `y`.
+    fn score(&self, py: Python<'_>, x: &Bound<'_, PyAny>, y: Vec<f64>) -> PyResult<f64> {
+        let pred = self.predict(py, x)?;
+        tpt_ml_proven_core::metrics::accuracy(&y, &pred).map_err(to_py_err)
+    }
+
     /// Serialises the fitted model to bytes, in the tpt-ml-proven model file format.
     fn to_bytes<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyBytes>> {
         Ok(PyBytes::new(py, &self.encode()?))

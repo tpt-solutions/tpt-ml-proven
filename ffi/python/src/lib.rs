@@ -298,6 +298,12 @@ impl PyKMeans {
 
 #[pymethods]
 impl PyKMeans {
+    /// Fits, then returns the cluster of each row. Equivalent to `fit(X).predict(X)`.
+    fn fit_predict(&mut self, py: Python<'_>, x: &Bound<'_, PyAny>) -> PyResult<Vec<usize>> {
+        self.fit_impl(py, x)?;
+        self.predict(py, x)
+    }
+
     /// Serialises the fitted model to bytes, in the tpt-ml-proven model file format.
     fn to_bytes<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyBytes>> {
         Ok(PyBytes::new(py, &self.encode()?))
