@@ -17,7 +17,7 @@
 
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
-use pyo3::types::{PyDict, PyTuple};
+use pyo3::types::{PyBytes, PyDict, PyTuple};
 
 use tpt_ml_proven_clustering::{Init, KMeans};
 use tpt_ml_proven_core::error::Error;
@@ -32,6 +32,18 @@ pub use models::{
     PyDbscan, PyElasticNet, PyHdbscan, PyLasso, PyLogisticRegression, PyNmf, PyRidge,
     PyStumpForest, PyTruncatedSvd,
 };
+
+/// Dtype of a model file: 1 for f32, 2 for f64. Version 1 files are f64.
+pub(crate) fn peek_dtype(bytes: &[u8]) -> PyResult<u32> {
+    if bytes.len() < 20 || bytes[..8] != *b"TPTMLMDL" {
+        return Err(PyValueError::new_err("not a tpt-ml-proven model file"));
+    }
+    let version = u32::from_le_bytes(bytes[8..12].try_into().expect("4 bytes"));
+    if version < 2 {
+        return Ok(2);
+    }
+    Ok(u32::from_le_bytes(bytes[16..20].try_into().expect("4 bytes")))
+}
 
 fn to_py_err(e: Error) -> PyErr {
     match e {
@@ -249,8 +261,77 @@ impl PyKMeans {
     }
 }
 
+impl PyKMeans {
+    fn encode(&self) -> PyResult<Vec<u8>> {
+        match self.fitted.as_ref().ok_or_else(not_fitted)? {
+            KState::F32(m) => m.to_bytes().map_err(to_py_err),
+            KState::F64(m) => m.to_bytes().map_err(to_py_err),
+        }
+    }
+
+    fn decode(bytes: &[u8]) -> PyResult<Self> {
+        fn params<F: Float>(m: &KMeans<F>) -> KMeansParams {
+            KMeansParams {
+                n_clusters: m.n_clusters(),
+                max_iter: m.max_iter(),
+                tol: m.tol(),
+                init: m.init(),
+                seed: m.seed(),
+                threads: m.threads(),
+            }
+        }
+        if peek_dtype(bytes)? == 1 {
+            let m = KMeans::<f32>::from_bytes(bytes).map_err(to_py_err)?;
+            Ok(Self {
+                params: params(&m),
+                fitted: Some(KState::F32(m)),
+            })
+        } else {
+            let m = KMeans::<f64>::from_bytes(bytes).map_err(to_py_err)?;
+            Ok(Self {
+                params: params(&m),
+                fitted: Some(KState::F64(m)),
+            })
+        }
+    }
+}
+
 #[pymethods]
 impl PyKMeans {
+    /// Serialises the fitted model to bytes, in the tpt-ml-proven model file format.
+    fn to_bytes<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyBytes>> {
+        Ok(PyBytes::new(py, &self.encode()?))
+    }
+
+    /// Loads a model from bytes written by `to_bytes`. The hyper-parameters come from the file.
+    #[staticmethod]
+    fn from_bytes(data: &[u8]) -> PyResult<Self> {
+        Self::decode(data)
+    }
+
+    /// Writes the fitted model to a file.
+    fn save(&self, path: &str) -> PyResult<()> {
+        std::fs::write(path, self.encode()?).map_err(|e| PyValueError::new_err(e.to_string()))
+    }
+
+    /// Loads a model from a file written by `save`.
+    #[staticmethod]
+    fn load(path: &str) -> PyResult<Self> {
+        let bytes = std::fs::read(path).map_err(|e| PyValueError::new_err(e.to_string()))?;
+        Self::decode(&bytes)
+    }
+
+    /// Pickle support: unpickling calls `from_bytes` on the saved bytes.
+    fn __reduce__<'py>(
+        slf: &Bound<'py, Self>,
+    ) -> PyResult<(Bound<'py, PyAny>, (Bound<'py, PyBytes>,))> {
+        let py = slf.py();
+        let bytes = PyBytes::new(py, &slf.borrow().encode()?);
+        let loader = slf.get_type().getattr("from_bytes")?;
+        Ok((loader, (bytes,)))
+    }
+
+
     #[new]
     #[pyo3(signature = (n_clusters, *, max_iter=300, tol=1e-4, init="k-means++", seed=0, threads=1))]
     fn new(
@@ -431,8 +512,67 @@ impl PyPca {
     }
 }
 
+impl PyPca {
+    fn encode(&self) -> PyResult<Vec<u8>> {
+        match self.fitted.as_ref().ok_or_else(not_fitted)? {
+            PState::F32(m) => m.to_bytes().map_err(to_py_err),
+            PState::F64(m) => m.to_bytes().map_err(to_py_err),
+        }
+    }
+
+    fn decode(bytes: &[u8]) -> PyResult<Self> {
+        if peek_dtype(bytes)? == 1 {
+            let m = Pca::<f32>::from_bytes(bytes).map_err(to_py_err)?;
+            Ok(Self {
+                n_components: m.n_components(),
+                fitted: Some(PState::F32(m)),
+            })
+        } else {
+            let m = Pca::<f64>::from_bytes(bytes).map_err(to_py_err)?;
+            Ok(Self {
+                n_components: m.n_components(),
+                fitted: Some(PState::F64(m)),
+            })
+        }
+    }
+}
+
 #[pymethods]
 impl PyPca {
+    /// Serialises the fitted model to bytes, in the tpt-ml-proven model file format.
+    fn to_bytes<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyBytes>> {
+        Ok(PyBytes::new(py, &self.encode()?))
+    }
+
+    /// Loads a model from bytes written by `to_bytes`. The hyper-parameters come from the file.
+    #[staticmethod]
+    fn from_bytes(data: &[u8]) -> PyResult<Self> {
+        Self::decode(data)
+    }
+
+    /// Writes the fitted model to a file.
+    fn save(&self, path: &str) -> PyResult<()> {
+        std::fs::write(path, self.encode()?).map_err(|e| PyValueError::new_err(e.to_string()))
+    }
+
+    /// Loads a model from a file written by `save`.
+    #[staticmethod]
+    fn load(path: &str) -> PyResult<Self> {
+        let bytes = std::fs::read(path).map_err(|e| PyValueError::new_err(e.to_string()))?;
+        Self::decode(&bytes)
+    }
+
+    /// Pickle support: unpickling calls `from_bytes` on the saved bytes.
+    fn __reduce__<'py>(
+        slf: &Bound<'py, Self>,
+    ) -> PyResult<(Bound<'py, PyAny>, (Bound<'py, PyBytes>,))> {
+        let py = slf.py();
+        let bytes = PyBytes::new(py, &slf.borrow().encode()?);
+        let loader = slf.get_type().getattr("from_bytes")?;
+        Ok((loader, (bytes,)))
+    }
+
+
     #[new]
     fn new(n_components: usize) -> Self {
         Self {

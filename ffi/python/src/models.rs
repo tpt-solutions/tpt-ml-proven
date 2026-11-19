@@ -7,6 +7,7 @@
 
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
+use pyo3::types::{PyAny, PyBytes};
 
 use tpt_ml_proven_clustering::{Dbscan, Hdbscan};
 use tpt_ml_proven_core::error::Error;
@@ -154,8 +155,60 @@ pub struct PyTruncatedSvd {
     fitted: Option<TruncatedSvd<f64>>,
 }
 
+impl PyTruncatedSvd {
+    fn encode(&self) -> PyResult<Vec<u8>> {
+        self.fitted
+            .as_ref()
+            .ok_or_else(not_fitted)?
+            .to_bytes()
+            .map_err(to_py_err)
+    }
+
+    fn decode(bytes: &[u8]) -> PyResult<Self> {
+        let m = TruncatedSvd::<f64>::from_bytes(bytes).map_err(to_py_err)?;
+        Ok(Self {
+            n_components: m.n_components(),
+            fitted: Some(m),
+        })
+    }
+}
+
 #[pymethods]
 impl PyTruncatedSvd {
+    /// Serialises the fitted model to bytes, in the tpt-ml-proven model file format.
+    fn to_bytes<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyBytes>> {
+        Ok(PyBytes::new(py, &self.encode()?))
+    }
+
+    /// Loads a model from bytes written by `to_bytes`. The hyper-parameters come from the file.
+    #[staticmethod]
+    fn from_bytes(data: &[u8]) -> PyResult<Self> {
+        Self::decode(data)
+    }
+
+    /// Writes the fitted model to a file.
+    fn save(&self, path: &str) -> PyResult<()> {
+        std::fs::write(path, self.encode()?).map_err(|e| PyValueError::new_err(e.to_string()))
+    }
+
+    /// Loads a model from a file written by `save`.
+    #[staticmethod]
+    fn load(path: &str) -> PyResult<Self> {
+        let bytes = std::fs::read(path).map_err(|e| PyValueError::new_err(e.to_string()))?;
+        Self::decode(&bytes)
+    }
+
+    /// Pickle support: unpickling calls `from_bytes` on the saved bytes.
+    fn __reduce__<'py>(
+        slf: &Bound<'py, Self>,
+    ) -> PyResult<(Bound<'py, PyAny>, (Bound<'py, PyBytes>,))> {
+        let py = slf.py();
+        let bytes = PyBytes::new(py, &slf.borrow().encode()?);
+        let loader = slf.get_type().getattr("from_bytes")?;
+        Ok((loader, (bytes,)))
+    }
+
+
     #[new]
     fn new(n_components: usize) -> Self {
         Self {
@@ -218,8 +271,63 @@ pub struct PyNmf {
     fitted: Option<Nmf<f64>>,
 }
 
+impl PyNmf {
+    fn encode(&self) -> PyResult<Vec<u8>> {
+        self.fitted
+            .as_ref()
+            .ok_or_else(not_fitted)?
+            .to_bytes()
+            .map_err(to_py_err)
+    }
+
+    fn decode(bytes: &[u8]) -> PyResult<Self> {
+        let m = Nmf::<f64>::from_bytes(bytes).map_err(to_py_err)?;
+        Ok(Self {
+            n_components: m.n_components(),
+            max_iter: m.max_iter(),
+            tol: m.tol(),
+            seed: m.seed(),
+            fitted: Some(m),
+        })
+    }
+}
+
 #[pymethods]
 impl PyNmf {
+    /// Serialises the fitted model to bytes, in the tpt-ml-proven model file format.
+    fn to_bytes<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyBytes>> {
+        Ok(PyBytes::new(py, &self.encode()?))
+    }
+
+    /// Loads a model from bytes written by `to_bytes`. The hyper-parameters come from the file.
+    #[staticmethod]
+    fn from_bytes(data: &[u8]) -> PyResult<Self> {
+        Self::decode(data)
+    }
+
+    /// Writes the fitted model to a file.
+    fn save(&self, path: &str) -> PyResult<()> {
+        std::fs::write(path, self.encode()?).map_err(|e| PyValueError::new_err(e.to_string()))
+    }
+
+    /// Loads a model from a file written by `save`.
+    #[staticmethod]
+    fn load(path: &str) -> PyResult<Self> {
+        let bytes = std::fs::read(path).map_err(|e| PyValueError::new_err(e.to_string()))?;
+        Self::decode(&bytes)
+    }
+
+    /// Pickle support: unpickling calls `from_bytes` on the saved bytes.
+    fn __reduce__<'py>(
+        slf: &Bound<'py, Self>,
+    ) -> PyResult<(Bound<'py, PyAny>, (Bound<'py, PyBytes>,))> {
+        let py = slf.py();
+        let bytes = PyBytes::new(py, &slf.borrow().encode()?);
+        let loader = slf.get_type().getattr("from_bytes")?;
+        Ok((loader, (bytes,)))
+    }
+
+
     #[new]
     #[pyo3(signature = (n_components, *, max_iter=200, tol=1e-4, seed=0))]
     fn new(n_components: usize, max_iter: usize, tol: f64, seed: u64) -> Self {
@@ -299,7 +407,7 @@ impl PyNmf {
 
 /// Shared shape of the regression wrappers: fit on `(X, y)`, predict, expose coefficients.
 macro_rules! regression_class {
-    ($py_name:literal, $rust_ty:ident, $ident:ident, $($field:ident : $ty:ty),* ; $build:expr ; $ctor:item) => {
+    ($py_name:literal, $rust_ty:ident, $ident:ident, $($field:ident : $ty:ty),* ; $build:expr ; $from:expr ; $ctor:item) => {
         #[doc = concat!($py_name, " regression, fitted in f64.")]
         #[pyclass(name = $py_name, module = "tpt_ml_proven")]
         pub struct $ident {
@@ -307,9 +415,57 @@ macro_rules! regression_class {
             fitted: Option<$rust_ty<f64>>,
         }
 
+        impl $ident {
+            fn encode(&self) -> PyResult<Vec<u8>> {
+                self.fitted.as_ref().ok_or_else(not_fitted)?.to_bytes().map_err(to_py_err)
+            }
+
+            fn decode(bytes: &[u8]) -> PyResult<Self> {
+                let m = <$rust_ty<f64>>::from_bytes(bytes).map_err(to_py_err)?;
+                let from: fn($rust_ty<f64>) -> Self = $from;
+                Ok(from(m))
+            }
+        }
+
         #[pymethods]
         impl $ident {
             $ctor
+
+                /// Serialises the fitted model to bytes, in the tpt-ml-proven model file format.
+                fn to_bytes<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyBytes>> {
+                    Ok(PyBytes::new(py, &self.encode()?))
+                }
+
+                /// Loads a model from bytes written by `to_bytes`. The hyper-parameters come from the file.
+                #[staticmethod]
+                fn from_bytes(data: &[u8]) -> PyResult<Self> {
+                    Self::decode(data)
+                }
+
+                /// Writes the fitted model to a file.
+                fn save(&self, path: &str) -> PyResult<()> {
+                    std::fs::write(path, self.encode()?).map_err(|e| PyValueError::new_err(e.to_string()))
+                }
+
+                /// Loads a model from a file written by `save`.
+                #[staticmethod]
+                fn load(path: &str) -> PyResult<Self> {
+                    let bytes = std::fs::read(path).map_err(|e| PyValueError::new_err(e.to_string()))?;
+                    Self::decode(&bytes)
+                }
+
+                /// Pickle support: unpickling calls `from_bytes` on the saved bytes.
+                fn __reduce__<'py>(
+                    slf: &Bound<'py, Self>,
+                ) -> PyResult<(Bound<'py, PyAny>, (Bound<'py, PyBytes>,))> {
+                    let py = slf.py();
+                    let bytes = PyBytes::new(py, &slf.borrow().encode()?);
+                    let loader = slf.get_type().getattr("from_bytes")?;
+                    Ok((loader, (bytes,)))
+                }
+
+
+
 
             /// Fits to a 2-D array and a target sequence. Releases the GIL while fitting.
             fn fit<'py>(
@@ -363,6 +519,7 @@ regression_class!(
     "Ridge", Ridge, PyRidge,
     alpha: f64 ;
     |s: &PyRidge| Ridge::<f64>::new(s.alpha) ;
+    |m: Ridge<f64>| PyRidge { alpha: m.alpha(), fitted: Some(m) } ;
     #[new]
     #[pyo3(signature = (alpha=1.0))]
     fn new(alpha: f64) -> Self {
@@ -374,6 +531,7 @@ regression_class!(
     "Lasso", Lasso, PyLasso,
     alpha: f64, max_iter: usize, tol: f64 ;
     |s: &PyLasso| Lasso::<f64>::new(s.alpha).with_max_iter(s.max_iter).with_tol(s.tol) ;
+    |m: Lasso<f64>| PyLasso { alpha: m.alpha(), max_iter: m.max_iter(), tol: m.tol(), fitted: Some(m) } ;
     #[new]
     #[pyo3(signature = (alpha=1.0, *, max_iter=1000, tol=1e-4))]
     fn new(alpha: f64, max_iter: usize, tol: f64) -> Self {
@@ -387,6 +545,9 @@ regression_class!(
     |s: &PyElasticNet| ElasticNet::<f64>::new(s.alpha, s.l1_ratio)
         .with_max_iter(s.max_iter)
         .with_tol(s.tol) ;
+    |m: ElasticNet<f64>| PyElasticNet {
+        alpha: m.alpha(), l1_ratio: m.l1_ratio(), max_iter: m.max_iter(), tol: m.tol(), fitted: Some(m),
+    } ;
     #[new]
     #[pyo3(signature = (alpha=1.0, l1_ratio=0.5, *, max_iter=1000, tol=1e-4))]
     fn new(alpha: f64, l1_ratio: f64, max_iter: usize, tol: f64) -> Self {
@@ -532,8 +693,61 @@ pub struct PyStumpForest {
     fitted: Option<StumpForest<f64>>,
 }
 
+impl PyStumpForest {
+    fn encode(&self) -> PyResult<Vec<u8>> {
+        self.fitted
+            .as_ref()
+            .ok_or_else(not_fitted)?
+            .to_bytes()
+            .map_err(to_py_err)
+    }
+
+    fn decode(bytes: &[u8]) -> PyResult<Self> {
+        let m = StumpForest::<f64>::from_bytes(bytes).map_err(to_py_err)?;
+        Ok(Self {
+            n_estimators: m.n_estimators_setting(),
+            seed: m.seed(),
+            fitted: Some(m),
+        })
+    }
+}
+
 #[pymethods]
 impl PyStumpForest {
+    /// Serialises the fitted model to bytes, in the tpt-ml-proven model file format.
+    fn to_bytes<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyBytes>> {
+        Ok(PyBytes::new(py, &self.encode()?))
+    }
+
+    /// Loads a model from bytes written by `to_bytes`. The hyper-parameters come from the file.
+    #[staticmethod]
+    fn from_bytes(data: &[u8]) -> PyResult<Self> {
+        Self::decode(data)
+    }
+
+    /// Writes the fitted model to a file.
+    fn save(&self, path: &str) -> PyResult<()> {
+        std::fs::write(path, self.encode()?).map_err(|e| PyValueError::new_err(e.to_string()))
+    }
+
+    /// Loads a model from a file written by `save`.
+    #[staticmethod]
+    fn load(path: &str) -> PyResult<Self> {
+        let bytes = std::fs::read(path).map_err(|e| PyValueError::new_err(e.to_string()))?;
+        Self::decode(&bytes)
+    }
+
+    /// Pickle support: unpickling calls `from_bytes` on the saved bytes.
+    fn __reduce__<'py>(
+        slf: &Bound<'py, Self>,
+    ) -> PyResult<(Bound<'py, PyAny>, (Bound<'py, PyBytes>,))> {
+        let py = slf.py();
+        let bytes = PyBytes::new(py, &slf.borrow().encode()?);
+        let loader = slf.get_type().getattr("from_bytes")?;
+        Ok((loader, (bytes,)))
+    }
+
+
     #[new]
     #[pyo3(signature = (n_estimators=100, *, seed=0))]
     fn new(n_estimators: usize, seed: u64) -> Self {
