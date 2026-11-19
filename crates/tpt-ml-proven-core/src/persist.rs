@@ -71,6 +71,24 @@ pub mod kind {
     pub const DECISION_TREE: u32 = 8;
     /// `GradientBoostingRegressor`.
     pub const GRADIENT_BOOSTING: u32 = 9;
+    /// `TruncatedSvd`.
+    pub const TRUNCATED_SVD: u32 = 10;
+    /// `Nmf`.
+    pub const NMF: u32 = 11;
+    /// `StumpForest`.
+    pub const STUMP_FOREST: u32 = 12;
+    /// `StandardScaler`.
+    pub const STANDARD_SCALER: u32 = 13;
+    /// `MinMaxScaler`.
+    pub const MINMAX_SCALER: u32 = 14;
+    /// `RobustScaler`.
+    pub const ROBUST_SCALER: u32 = 15;
+    /// `OneHotEncoder`.
+    pub const ONE_HOT_ENCODER: u32 = 16;
+    /// `OrdinalEncoder`.
+    pub const ORDINAL_ENCODER: u32 = 17;
+    /// `SimpleImputer`.
+    pub const SIMPLE_IMPUTER: u32 = 18;
 }
 
 /// Header length of a version 1 file: magic, version, kind.
