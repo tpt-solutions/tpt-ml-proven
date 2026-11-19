@@ -10,6 +10,7 @@ use tpt_ml_proven_core::error::Error;
 use tpt_ml_proven_core::persist::{dtype, kind, Reader, Writer};
 
 use crate::classifier::{Criterion, DecisionTreeClassifier, Fitted};
+use crate::forest::{ForestFit, RandomForestClassifier, RandomForestRegressor};
 use crate::gbm::{Boosted, DecisionTreeRegressor, GradientBoostingRegressor};
 use crate::tree::{Node, Tree};
 
@@ -134,13 +135,22 @@ impl DecisionTreeRegressor {
 }
 
 impl GradientBoostingRegressor {
-    /// Serialises the model to a model file.
+    /// Serialises the model to a model file. Writes the sampling settings too, under kind 22.
     pub fn to_bytes(&self) -> Result<Vec<u8>, Error> {
-        let mut w = Writer::with_dtype(kind::GRADIENT_BOOSTING, dtype::F64);
+        let mut w = Writer::with_dtype(kind::GRADIENT_BOOSTING_SAMPLED, dtype::F64);
         w.usize(self.n_estimators());
         w.f64(self.learning_rate());
         w.usize(self.max_depth());
         w.usize(self.min_samples_leaf());
+        w.f64(self.subsample());
+        match self.max_features() {
+            None => w.bool(false),
+            Some(m) => {
+                w.bool(true);
+                w.usize(m);
+            }
+        }
+        w.u64(self.seed());
         match self.boosted() {
             None => w.bool(false),
             Some(b) => {
@@ -157,13 +167,31 @@ impl GradientBoostingRegressor {
         Ok(w.finish())
     }
 
-    /// Loads a model written by [`GradientBoostingRegressor::to_bytes`].
+    /// Loads a model written by [`GradientBoostingRegressor::to_bytes`]. Files written before
+    /// the sampling settings existed (kind 9) load with the defaults: every row, every feature,
+    /// seed 0.
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, Error> {
-        let mut r = Reader::new(bytes, kind::GRADIENT_BOOSTING)?;
+        let sampled = matches!(
+            bytes.get(12..16).map(|b| u32::from_le_bytes(b.try_into().expect("4 bytes"))),
+            Some(k) if k == kind::GRADIENT_BOOSTING_SAMPLED
+        );
+        let tag = if sampled {
+            kind::GRADIENT_BOOSTING_SAMPLED
+        } else {
+            kind::GRADIENT_BOOSTING
+        };
+        let mut r = Reader::new(bytes, tag)?;
         let n_estimators = r.usize()?;
         let learning_rate = r.f64()?;
         let max_depth = r.usize()?;
         let min_samples_leaf = r.usize()?;
+        let (subsample, max_features, seed) = if sampled {
+            let subsample = r.f64()?;
+            let max_features = if r.bool()? { Some(r.usize()?) } else { None };
+            (subsample, max_features, r.u64()?)
+        } else {
+            (1.0, None, 0)
+        };
         let boosted = if r.bool()? {
             let init = r.f64()?;
             let n_features = r.usize()?;
@@ -195,11 +223,18 @@ impl GradientBoostingRegressor {
         if n_estimators == 0 || max_depth == 0 || min_samples_leaf == 0 {
             return Err(invalid("gradient boosting parameters must be at least 1"));
         }
+        if !(subsample > 0.0 && subsample <= 1.0) {
+            return Err(invalid("gradient boosting subsample is outside (0, 1]"));
+        }
+        if max_features == Some(0) {
+            return Err(invalid("gradient boosting max_features must be at least 1"));
+        }
         Ok(GradientBoostingRegressor::from_parts(
             n_estimators,
             learning_rate,
             max_depth,
             min_samples_leaf,
+            (subsample, max_features, seed),
             boosted,
         ))
     }
@@ -265,6 +300,205 @@ impl DecisionTreeClassifier {
             max_depth,
             min_samples_leaf,
             criterion,
+            fitted,
+        })
+    }
+}
+
+// ---------------------------------------------------------------- forests
+
+/// Writes the hyper-parameters shared by both forests.
+fn write_forest_settings(
+    w: &mut Writer,
+    n_estimators: usize,
+    max_depth: usize,
+    min_samples_leaf: usize,
+    max_features: Option<usize>,
+    seed: u64,
+) {
+    w.usize(n_estimators);
+    w.usize(max_depth);
+    w.usize(min_samples_leaf);
+    match max_features {
+        None => w.bool(false),
+        Some(m) => {
+            w.bool(true);
+            w.usize(m);
+        }
+    }
+    w.u64(seed);
+}
+
+/// Reads and checks the hyper-parameters written by [`write_forest_settings`].
+fn read_forest_settings(
+    r: &mut Reader<'_>,
+) -> Result<(usize, usize, usize, Option<usize>, u64), Error> {
+    let n_estimators = r.usize()?;
+    let max_depth = r.usize()?;
+    let min_samples_leaf = r.usize()?;
+    let max_features = if r.bool()? { Some(r.usize()?) } else { None };
+    let seed = r.u64()?;
+    if n_estimators == 0 || max_depth == 0 || min_samples_leaf == 0 {
+        return Err(invalid("forest settings must be at least 1"));
+    }
+    if max_features == Some(0) {
+        return Err(invalid("forest max_features must be at least 1"));
+    }
+    Ok((
+        n_estimators,
+        max_depth,
+        min_samples_leaf,
+        max_features,
+        seed,
+    ))
+}
+
+/// Reads the trees of a fitted forest, checking their count and their feature width.
+fn read_forest_trees(
+    r: &mut Reader<'_>,
+    n_estimators: usize,
+    n_features: usize,
+) -> Result<Vec<Tree>, Error> {
+    let count = r.usize()?;
+    if count != n_estimators {
+        return Err(invalid("forest tree count differs from n_estimators"));
+    }
+    let mut trees = Vec::new();
+    for _ in 0..count {
+        let t = read_tree(r)?;
+        if t.n_features != n_features {
+            return Err(invalid("forest tree width differs from the forest's"));
+        }
+        trees.push(t);
+    }
+    Ok(trees)
+}
+
+impl RandomForestRegressor {
+    /// Serialises the forest (settings and fitted trees) to a model file.
+    pub fn to_bytes(&self) -> Result<Vec<u8>, Error> {
+        let mut w = Writer::for_float::<f64>(kind::RANDOM_FOREST_REGRESSOR);
+        write_forest_settings(
+            &mut w,
+            self.n_estimators,
+            self.max_depth,
+            self.min_samples_leaf,
+            self.max_features,
+            self.seed,
+        );
+        match &self.fitted {
+            None => w.bool(false),
+            Some((trees, n_features)) => {
+                w.bool(true);
+                w.usize(*n_features);
+                w.usize(trees.len());
+                for t in trees {
+                    write_tree(&mut w, t);
+                }
+            }
+        }
+        Ok(w.finish())
+    }
+
+    /// Loads a forest written by [`RandomForestRegressor::to_bytes`].
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, Error> {
+        let mut r = Reader::new(bytes, kind::RANDOM_FOREST_REGRESSOR)?;
+        let (n_estimators, max_depth, min_samples_leaf, max_features, seed) =
+            read_forest_settings(&mut r)?;
+        let fitted = if r.bool()? {
+            let n_features = r.usize()?;
+            let trees = read_forest_trees(&mut r, n_estimators, n_features)?;
+            Some((trees, n_features))
+        } else {
+            None
+        };
+        r.finish()?;
+        Ok(Self {
+            n_estimators,
+            max_depth,
+            min_samples_leaf,
+            max_features,
+            seed,
+            fitted,
+        })
+    }
+}
+
+impl RandomForestClassifier {
+    /// Serialises the forest (settings, classes and fitted trees) to a model file.
+    pub fn to_bytes(&self) -> Result<Vec<u8>, Error> {
+        let mut w = Writer::for_float::<f64>(kind::RANDOM_FOREST_CLASSIFIER);
+        write_forest_settings(
+            &mut w,
+            self.n_estimators,
+            self.max_depth,
+            self.min_samples_leaf,
+            self.max_features,
+            self.seed,
+        );
+        w.bool(self.criterion == Criterion::Entropy);
+        match &self.fitted {
+            None => w.bool(false),
+            Some(f) => {
+                w.bool(true);
+                w.usize(f.n_features);
+                w.f64s(&f.classes);
+                w.usize(f.trees.len());
+                for t in &f.trees {
+                    write_tree(&mut w, t);
+                }
+            }
+        }
+        Ok(w.finish())
+    }
+
+    /// Loads a forest written by [`RandomForestClassifier::to_bytes`]. Checks the classes are
+    /// sorted and distinct, and that every leaf predicts one of them.
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, Error> {
+        let mut r = Reader::new(bytes, kind::RANDOM_FOREST_CLASSIFIER)?;
+        let (n_estimators, max_depth, min_samples_leaf, max_features, seed) =
+            read_forest_settings(&mut r)?;
+        let criterion = if r.bool()? {
+            Criterion::Entropy
+        } else {
+            Criterion::Gini
+        };
+        let fitted = if r.bool()? {
+            let n_features = r.usize()?;
+            let classes = r.f64s()?;
+            let trees = read_forest_trees(&mut r, n_estimators, n_features)?;
+            Some(ForestFit {
+                trees,
+                classes,
+                n_features,
+            })
+        } else {
+            None
+        };
+        r.finish()?;
+        if let Some(f) = &fitted {
+            if f.classes.is_empty() || f.classes.windows(2).any(|w| w[0] >= w[1]) {
+                return Err(invalid("forest classes are not sorted and distinct"));
+            }
+            let known = f.trees.iter().all(|t| {
+                t.nodes.iter().all(|n| match n {
+                    Node::Leaf { value, .. } => f.classes.contains(value),
+                    Node::Split { .. } => true,
+                })
+            });
+            if !known {
+                return Err(invalid(
+                    "a forest leaf predicts a label that was never seen",
+                ));
+            }
+        }
+        Ok(Self {
+            n_estimators,
+            max_depth,
+            min_samples_leaf,
+            criterion,
+            max_features,
+            seed,
             fitted,
         })
     }

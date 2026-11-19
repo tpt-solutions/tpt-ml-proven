@@ -31,7 +31,7 @@ fn bootstrap(rows: usize, rng: &mut SplitMix64) -> Vec<usize> {
 }
 
 /// The rows at `idx`, copied out of the row-major `data`.
-fn take_rows(data: &[f64], cols: usize, idx: &[usize]) -> Vec<f64> {
+pub(crate) fn take_rows(data: &[f64], cols: usize, idx: &[usize]) -> Vec<f64> {
     let mut out = Vec::with_capacity(idx.len() * cols);
     for &i in idx {
         out.extend_from_slice(&data[i * cols..(i + 1) * cols]);

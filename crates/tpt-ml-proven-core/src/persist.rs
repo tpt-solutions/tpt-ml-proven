@@ -91,6 +91,12 @@ pub mod kind {
     pub const SIMPLE_IMPUTER: u32 = 18;
     /// `DecisionTreeClassifier`.
     pub const DECISION_TREE_CLASSIFIER: u32 = 19;
+    /// `RandomForestRegressor`.
+    pub const RANDOM_FOREST_REGRESSOR: u32 = 20;
+    /// `RandomForestClassifier`.
+    pub const RANDOM_FOREST_CLASSIFIER: u32 = 21;
+    /// `GradientBoostingRegressor` with subsample, max_features and seed (kind 9 has none).
+    pub const GRADIENT_BOOSTING_SAMPLED: u32 = 22;
 }
 
 /// Header length of a version 1 file: magic, version, kind.

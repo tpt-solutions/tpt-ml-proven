@@ -156,6 +156,17 @@ pub(crate) fn choose_features(
     all
 }
 
+/// `k` distinct row indices out of `0..rows`, drawn uniformly from `rng`.
+pub(crate) fn sample_rows(rows: usize, k: usize, rng: &mut SplitMix64) -> Vec<usize> {
+    let mut all: Vec<usize> = (0..rows).collect();
+    for i in 0..k {
+        let j = i + rng.next_below(rows - i);
+        all.swap(i, j);
+    }
+    all.truncate(k);
+    all
+}
+
 /// The state shared by every node of one tree being grown.
 struct Grower<'a> {
     data: &'a [f64],

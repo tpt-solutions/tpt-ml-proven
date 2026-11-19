@@ -8,7 +8,8 @@ use tpt_ml_proven_core::{
     ensures, requires, ArrayView, Predictor, SupervisedEstimator, TargetView,
 };
 
-use crate::tree::{fit_tree, Limits, Tree};
+use crate::forest::take_rows;
+use crate::tree::{fit_tree, sample_rows, Limits, Tree};
 use tpt_ml_proven_core::rng::SplitMix64;
 
 /// Reads a feature matrix and target into flat `f64` buffers, checking shapes and values.
@@ -190,6 +191,9 @@ pub struct GradientBoostingRegressor {
     learning_rate: f64,
     max_depth: usize,
     min_samples_leaf: usize,
+    subsample: f64,
+    max_features: Option<usize>,
+    seed: u64,
     fitted: Option<Boosted>,
 }
 
@@ -212,8 +216,31 @@ impl GradientBoostingRegressor {
             learning_rate: 0.1,
             max_depth,
             min_samples_leaf: 1,
+            subsample: 1.0,
+            max_features: None,
+            seed: 0,
             fitted: None,
         }
+    }
+
+    /// Fraction of rows each round is fitted on, in `(0, 1]` (default 1.0: every row). Below
+    /// 1, each round draws that fraction of the rows without replacement, as stochastic
+    /// gradient boosting does.
+    pub fn with_subsample(mut self, subsample: f64) -> Self {
+        self.subsample = subsample;
+        self
+    }
+
+    /// Features each split may consider, drawn at random (default: all of them).
+    pub fn with_max_features(mut self, max_features: usize) -> Self {
+        self.max_features = Some(max_features);
+        self
+    }
+
+    /// Seed for the row and feature draws (default 0). Ignored when both are off.
+    pub fn with_seed(mut self, seed: u64) -> Self {
+        self.seed = seed;
+        self
     }
 
     /// Sets the shrinkage applied to each tree, in `(0, 1]` (default 0.1).
@@ -261,15 +288,29 @@ impl GradientBoostingRegressor {
         self.min_samples_leaf
     }
 
+    pub(crate) fn subsample(&self) -> f64 {
+        self.subsample
+    }
+
+    pub(crate) fn max_features(&self) -> Option<usize> {
+        self.max_features
+    }
+
+    pub(crate) fn seed(&self) -> u64 {
+        self.seed
+    }
+
     pub(crate) fn boosted(&self) -> Option<&Boosted> {
         self.fitted.as_ref()
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn from_parts(
         n_estimators: usize,
         learning_rate: f64,
         max_depth: usize,
         min_samples_leaf: usize,
+        sampling: (f64, Option<usize>, u64),
         fitted: Option<Boosted>,
     ) -> Self {
         Self {
@@ -277,6 +318,9 @@ impl GradientBoostingRegressor {
             learning_rate,
             max_depth,
             min_samples_leaf,
+            subsample: sampling.0,
+            max_features: sampling.1,
+            seed: sampling.2,
             fitted,
         }
     }
@@ -316,15 +360,30 @@ impl SupervisedEstimator for GradientBoostingRegressor {
             "gbm.learning_rate_unit"
         );
 
+        if !(self.subsample > 0.0 && self.subsample <= 1.0) {
+            return Err(Error::InvalidParameter {
+                name: "subsample",
+                reason: "must be in (0, 1]",
+            });
+        }
+        if self.max_features == Some(0) {
+            return Err(Error::InvalidParameter {
+                name: "max_features",
+                reason: "must be at least 1",
+            });
+        }
         let n = rows as f64;
         let init = targets.iter().sum::<f64>() / n;
         let mut pred = vec![init; rows];
         let limits = Limits {
             max_depth: self.max_depth,
             min_samples_leaf: self.min_samples_leaf,
-            max_features: usize::MAX,
+            max_features: self.max_features.map_or(usize::MAX, |m| m.min(cols)),
         };
-        let mut rng = SplitMix64::new(0);
+        // Every row is used unless subsampling is on, which is the case the parity tests cover.
+        let full = self.subsample >= 1.0;
+        let sample_size = ((self.subsample * rows as f64).round() as usize).clamp(1, rows);
+        let mut rng = SplitMix64::new(self.seed);
         let mut trees = Vec::with_capacity(self.n_estimators);
         let mut train_loss = Vec::with_capacity(self.n_estimators);
         let mut residual = vec![0.0; rows];
@@ -333,7 +392,14 @@ impl SupervisedEstimator for GradientBoostingRegressor {
                 residual[i] = targets[i] - pred[i];
             }
             let before = residual.iter().map(|r| r * r).sum::<f64>() / n;
-            let tree = fit_tree(&data, rows, cols, &residual, limits, &mut rng)?;
+            let tree = if full {
+                fit_tree(&data, rows, cols, &residual, limits, &mut rng)?
+            } else {
+                let idx = sample_rows(rows, sample_size, &mut rng);
+                let sub_x = take_rows(&data, cols, &idx);
+                let sub_r: Vec<f64> = idx.iter().map(|&i| residual[i]).collect();
+                fit_tree(&sub_x, sample_size, cols, &sub_r, limits, &mut rng)?
+            };
             for i in 0..rows {
                 pred[i] += self.learning_rate * tree.predict_row(&data[i * cols..(i + 1) * cols]);
             }
@@ -343,11 +409,14 @@ impl SupervisedEstimator for GradientBoostingRegressor {
                 .map(|(t, p)| (t - p) * (t - p))
                 .sum::<f64>()
                 / n;
-            // A round never makes the training error worse (see the crate docs).
-            ensures!(
-                after <= before * (1.0 + 1e-12) + 1e-300,
-                "gbm.loss_non_increasing"
-            );
+            // A round never makes the training error worse (see the crate docs). A subsampled
+            // round fits only some rows, so the guarantee is stated for full rounds.
+            if full {
+                ensures!(
+                    after <= before * (1.0 + 1e-12) + 1e-300,
+                    "gbm.loss_non_increasing"
+                );
+            }
             train_loss.push(after);
             trees.push(tree);
         }
