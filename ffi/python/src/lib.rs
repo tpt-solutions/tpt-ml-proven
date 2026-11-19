@@ -15,6 +15,7 @@
 //! The array must not be modified while `fit` runs. The memory is read without a lock,
 //! so another thread writing to it would race with the fit.
 
+use pyo3::exceptions::PyAttributeError;
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyBytes, PyDict, PyTuple};
@@ -368,6 +369,17 @@ impl PyKMeans {
 
 #[pymethods]
 impl PyKMeans {
+    /// Number of features seen in `fit`. Raises AttributeError before fit, as scikit-learn does.
+    #[getter]
+    fn n_features_in_(&self) -> PyResult<usize> {
+        (match self.fitted.as_ref() {
+            Some(KState::F32(m)) => m.cluster_centers().map(|d| d.cols()),
+            Some(KState::F64(m)) => m.cluster_centers().map(|d| d.cols()),
+            None => None,
+        })
+        .ok_or_else(|| PyAttributeError::new_err("n_features_in_ is not available before fit"))
+    }
+
     /// scikit-learn's fitted check: true once `fit` has succeeded.
     fn __sklearn_is_fitted__(&self) -> bool {
         self.fitted.is_some()
@@ -680,6 +692,17 @@ impl PyPca {
 
 #[pymethods]
 impl PyPca {
+    /// Number of features seen in `fit`. Raises AttributeError before fit, as scikit-learn does.
+    #[getter]
+    fn n_features_in_(&self) -> PyResult<usize> {
+        (match self.fitted.as_ref() {
+            Some(PState::F32(m)) => m.mean().map(|v| v.len()),
+            Some(PState::F64(m)) => m.mean().map(|v| v.len()),
+            None => None,
+        })
+        .ok_or_else(|| PyAttributeError::new_err("n_features_in_ is not available before fit"))
+    }
+
     /// scikit-learn's fitted check: true once `fit` has succeeded.
     fn __sklearn_is_fitted__(&self) -> bool {
         self.fitted.is_some()

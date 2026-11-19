@@ -86,7 +86,7 @@ def test_logistic_binary_keeps_the_original_labels():
     y = [7.0] * 30 + [3.0] * 30
     model = LogisticRegression(C=10.0).fit(x, y)
     assert model.classes_ == [3.0, 7.0]
-    assert model.predict(x) == y
+    assert list(model.predict(x)) == y
     proba = np.asarray(model.predict_proba(x))
     assert proba.shape == (60, 2)
     assert np.allclose(proba.sum(axis=1), 1.0)
@@ -99,7 +99,7 @@ def test_logistic_multiclass_separates_three_groups():
     y = [float(i) for i in range(3) for _ in range(20)]
     model = LogisticRegression(C=10.0).fit(x, y)
     assert model.classes_ == [0.0, 1.0, 2.0]
-    assert model.predict(x) == y
+    assert list(model.predict(x)) == y
     assert np.allclose(np.asarray(model.predict_proba(x)).sum(axis=1), 1.0)
 
 
@@ -107,7 +107,7 @@ def test_stump_forest_fits_a_threshold_rule():
     x = np.arange(40, dtype=float).reshape(40, 1)
     y = [0.0 if v < 20 else 1.0 for v in x[:, 0]]
     model = StumpForest(25, seed=7).fit(x, y)
-    assert model.predict(x) == y
+    assert list(model.predict(x)) == y
 
 
 def test_float32_input_gives_the_same_ridge_fit_as_float64():

@@ -54,3 +54,32 @@ __all__ = [
     "StumpForest",
     "TruncatedSVD",
 ]
+
+from . import _arrays as _arrays
+
+_arrays.install(
+    [
+        DBSCAN,
+        HDBSCAN,
+        NMF,
+        PCA,
+        KMeans,
+        ElasticNet,
+        Lasso,
+        LogisticRegression,
+        Ridge,
+        StumpForest,
+        TruncatedSVD,
+        StandardScaler,
+        MinMaxScaler,
+        RobustScaler,
+        OneHotEncoder,
+        OrdinalEncoder,
+        SimpleImputer,
+        DecisionTreeRegressor,
+        DecisionTreeClassifier,
+        GradientBoostingRegressor,
+        RandomForestRegressor,
+        RandomForestClassifier,
+    ]
+)

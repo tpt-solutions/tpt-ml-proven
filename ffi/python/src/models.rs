@@ -6,6 +6,7 @@
 //! copy. The copy is made while the GIL is held, and fitting runs without it.
 
 use crate::{repr_of, sklearn_tags};
+use pyo3::exceptions::PyAttributeError;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::{PyAny, PyBytes, PyDict};
@@ -50,6 +51,17 @@ pub struct PyDbscan {
 
 #[pymethods]
 impl PyDbscan {
+    /// Fits, then returns the cluster label of each row (`-1` for noise).
+    fn fit_predict<'py>(
+        slf: Bound<'py, Self>,
+        py: Python<'py>,
+        x: &Bound<'py, PyAny>,
+    ) -> PyResult<Vec<i64>> {
+        let fitted = Self::fit(slf, py, x)?;
+        let labels = fitted.borrow().labels_()?;
+        Ok(labels)
+    }
+
     /// scikit-learn's fitted check: true once `fit` has succeeded.
     fn __sklearn_is_fitted__(&self) -> bool {
         self.fitted.is_some()
@@ -161,6 +173,17 @@ pub struct PyHdbscan {
 
 #[pymethods]
 impl PyHdbscan {
+    /// Fits, then returns the cluster label of each row (`-1` for noise).
+    fn fit_predict<'py>(
+        slf: Bound<'py, Self>,
+        py: Python<'py>,
+        x: &Bound<'py, PyAny>,
+    ) -> PyResult<Vec<i64>> {
+        let fitted = Self::fit(slf, py, x)?;
+        let labels = fitted.borrow().labels_()?;
+        Ok(labels)
+    }
+
     /// scikit-learn's fitted check: true once `fit` has succeeded.
     fn __sklearn_is_fitted__(&self) -> bool {
         self.fitted.is_some()
@@ -286,6 +309,16 @@ impl PyTruncatedSvd {
 
 #[pymethods]
 impl PyTruncatedSvd {
+    /// Number of features seen in `fit`. Raises AttributeError before fit, as scikit-learn does.
+    #[getter]
+    fn n_features_in_(&self) -> PyResult<usize> {
+        (self
+            .fitted
+            .as_ref()
+            .and_then(|m| m.components().map(|d| d.cols())))
+        .ok_or_else(|| PyAttributeError::new_err("n_features_in_ is not available before fit"))
+    }
+
     /// scikit-learn's fitted check: true once `fit` has succeeded.
     fn __sklearn_is_fitted__(&self) -> bool {
         self.fitted.is_some()
@@ -457,6 +490,16 @@ impl PyNmf {
 
 #[pymethods]
 impl PyNmf {
+    /// Number of features seen in `fit`. Raises AttributeError before fit, as scikit-learn does.
+    #[getter]
+    fn n_features_in_(&self) -> PyResult<usize> {
+        (self
+            .fitted
+            .as_ref()
+            .and_then(|m| m.components().map(|d| d.cols())))
+        .ok_or_else(|| PyAttributeError::new_err("n_features_in_ is not available before fit"))
+    }
+
     /// scikit-learn's fitted check: true once `fit` has succeeded.
     fn __sklearn_is_fitted__(&self) -> bool {
         self.fitted.is_some()
@@ -651,6 +694,12 @@ macro_rules! regression_class {
         #[pymethods]
         impl $ident {
             $ctor
+
+    /// Number of features seen in `fit`. Raises AttributeError before fit, as scikit-learn does.
+        #[getter]
+        fn n_features_in_(&self) -> PyResult<usize> {
+            (self.fitted.as_ref().and_then(|m| m.coef().map(|c| c.len()))).ok_or_else(|| PyAttributeError::new_err("n_features_in_ is not available before fit"))
+        }
 
             /// scikit-learn's fitted check: true once `fit` has succeeded.
             fn __sklearn_is_fitted__(&self) -> bool {
@@ -861,6 +910,19 @@ pub struct PyLogisticRegression {
 
 #[pymethods]
 impl PyLogisticRegression {
+    /// Number of features seen in `fit`. Raises AttributeError before fit, as scikit-learn does.
+    #[getter]
+    fn n_features_in_(&self) -> PyResult<usize> {
+        (match self.fitted.as_ref() {
+            Some(LogitState::Binary { model, .. }) => model.coef().map(|c| c.len()),
+            Some(LogitState::Multi(m)) => {
+                m.coef().zip(m.intercept()).map(|(c, i)| c.len() / i.len())
+            }
+            None => None,
+        })
+        .ok_or_else(|| PyAttributeError::new_err("n_features_in_ is not available before fit"))
+    }
+
     /// scikit-learn's fitted check: true once `fit` has succeeded.
     fn __sklearn_is_fitted__(&self) -> bool {
         self.fitted.is_some()
@@ -1059,6 +1121,13 @@ impl PyStumpForest {
 
 #[pymethods]
 impl PyStumpForest {
+    /// Number of features seen in `fit`. Raises AttributeError before fit, as scikit-learn does.
+    #[getter]
+    fn n_features_in_(&self) -> PyResult<usize> {
+        (self.fitted.as_ref().and_then(|m| m.n_features()))
+            .ok_or_else(|| PyAttributeError::new_err("n_features_in_ is not available before fit"))
+    }
+
     /// scikit-learn's fitted check: true once `fit` has succeeded.
     fn __sklearn_is_fitted__(&self) -> bool {
         self.fitted.is_some()

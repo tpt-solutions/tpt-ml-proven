@@ -46,7 +46,7 @@ def test_kmeans_predict_and_transform_shapes():
     x = blobs()
     km = KMeans(2, seed=1)
     km.fit(x)
-    assert km.predict(x) == km.labels_
+    assert list(km.predict(x)) == list(km.labels_)
     d = km.transform(x)
     assert len(d) == 6 and len(d[0]) == 2
     assert all(v >= 0 for row in d for v in row)
@@ -57,7 +57,7 @@ def test_kmeans_fit_transform_matches_fit_then_transform():
     a = KMeans(2, seed=3).fit_transform(x)
     b = KMeans(2, seed=3)
     b.fit(x)
-    assert a == b.transform(x)
+    np.testing.assert_allclose(a, b.transform(x))
 
 
 def test_kmeans_random_init_and_threads_give_same_labels():

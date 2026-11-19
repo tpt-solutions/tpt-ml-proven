@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 TPT Solutions
 
+use pyo3::exceptions::PyAttributeError;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::{PyAny, PyBytes, PyDict};
@@ -62,6 +63,16 @@ impl PyDecisionTreeRegressor {
 
 #[pymethods]
 impl PyDecisionTreeRegressor {
+    /// Number of features seen in `fit`. Raises AttributeError before fit, as scikit-learn does.
+    #[getter]
+    fn n_features_in_(&self) -> PyResult<usize> {
+        (self
+            .fitted
+            .as_ref()
+            .and_then(|m| m.tree().map(|t| t.n_features())))
+        .ok_or_else(|| PyAttributeError::new_err("n_features_in_ is not available before fit"))
+    }
+
     /// Constructor parameters, as scikit-learn names them.
     #[new]
     #[pyo3(signature = (max_depth=3, *, min_samples_leaf=1))]
@@ -241,6 +252,13 @@ impl PyDecisionTreeClassifier {
 
 #[pymethods]
 impl PyDecisionTreeClassifier {
+    /// Number of features seen in `fit`. Raises AttributeError before fit, as scikit-learn does.
+    #[getter]
+    fn n_features_in_(&self) -> PyResult<usize> {
+        (self.fitted.as_ref().and_then(|m| m.n_features()))
+            .ok_or_else(|| PyAttributeError::new_err("n_features_in_ is not available before fit"))
+    }
+
     /// Constructor parameters, as scikit-learn names them.
     #[new]
     #[pyo3(signature = (max_depth=3, *, min_samples_leaf=1, criterion="gini"))]
@@ -447,6 +465,16 @@ impl PyGradientBoostingRegressor {
 
 #[pymethods]
 impl PyGradientBoostingRegressor {
+    /// Number of features seen in `fit`. Raises AttributeError before fit, as scikit-learn does.
+    #[getter]
+    fn n_features_in_(&self) -> PyResult<usize> {
+        (self
+            .fitted
+            .as_ref()
+            .and_then(|m| m.trees().and_then(|t| t.first()).map(|t| t.n_features())))
+        .ok_or_else(|| PyAttributeError::new_err("n_features_in_ is not available before fit"))
+    }
+
     /// Constructor parameters, as scikit-learn names them.
     #[new]
     #[pyo3(signature = (n_estimators=100, *, learning_rate=0.1, max_depth=3, min_samples_leaf=1, subsample=1.0, max_features=None, seed=0))]
@@ -659,6 +687,13 @@ impl PyRandomForestRegressor {
 
 #[pymethods]
 impl PyRandomForestRegressor {
+    /// Number of features seen in `fit`. Raises AttributeError before fit, as scikit-learn does.
+    #[getter]
+    fn n_features_in_(&self) -> PyResult<usize> {
+        (self.fitted.as_ref().and_then(|m| m.n_features()))
+            .ok_or_else(|| PyAttributeError::new_err("n_features_in_ is not available before fit"))
+    }
+
     /// Constructor parameters, as scikit-learn names them.
     #[new]
     #[pyo3(signature = (n_estimators=100, *, max_depth=10, min_samples_leaf=1, max_features=None, seed=0))]
@@ -866,6 +901,13 @@ impl PyRandomForestClassifier {
 
 #[pymethods]
 impl PyRandomForestClassifier {
+    /// Number of features seen in `fit`. Raises AttributeError before fit, as scikit-learn does.
+    #[getter]
+    fn n_features_in_(&self) -> PyResult<usize> {
+        (self.fitted.as_ref().and_then(|m| m.n_features()))
+            .ok_or_else(|| PyAttributeError::new_err("n_features_in_ is not available before fit"))
+    }
+
     /// Constructor parameters, as scikit-learn names them.
     #[new]
     #[pyo3(signature = (n_estimators=100, *, max_depth=10, min_samples_leaf=1, criterion="gini", max_features=None, seed=0))]

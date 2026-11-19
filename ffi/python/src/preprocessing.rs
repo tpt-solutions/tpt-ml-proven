@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 TPT Solutions
 
+use pyo3::exceptions::PyAttributeError;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::{PyAny, PyBytes, PyDict};
@@ -67,6 +68,13 @@ impl PyStandardScaler {
 
 #[pymethods]
 impl PyStandardScaler {
+    /// Number of features seen in `fit`. Raises AttributeError before fit, as scikit-learn does.
+    #[getter]
+    fn n_features_in_(&self) -> PyResult<usize> {
+        (self.fitted.as_ref().and_then(|m| m.n_features()))
+            .ok_or_else(|| PyAttributeError::new_err("n_features_in_ is not available before fit"))
+    }
+
     #[new]
     fn new() -> Self {
         Self { fitted: None }
@@ -225,6 +233,13 @@ impl PyMinMaxScaler {
 
 #[pymethods]
 impl PyMinMaxScaler {
+    /// Number of features seen in `fit`. Raises AttributeError before fit, as scikit-learn does.
+    #[getter]
+    fn n_features_in_(&self) -> PyResult<usize> {
+        (self.fitted.as_ref().and_then(|m| m.n_features()))
+            .ok_or_else(|| PyAttributeError::new_err("n_features_in_ is not available before fit"))
+    }
+
     #[new]
     fn new() -> Self {
         Self { fitted: None }
@@ -383,6 +398,13 @@ impl PyRobustScaler {
 
 #[pymethods]
 impl PyRobustScaler {
+    /// Number of features seen in `fit`. Raises AttributeError before fit, as scikit-learn does.
+    #[getter]
+    fn n_features_in_(&self) -> PyResult<usize> {
+        (self.fitted.as_ref().and_then(|m| m.n_features()))
+            .ok_or_else(|| PyAttributeError::new_err("n_features_in_ is not available before fit"))
+    }
+
     #[new]
     fn new() -> Self {
         Self { fitted: None }
@@ -541,6 +563,16 @@ impl PyOneHotEncoder {
 
 #[pymethods]
 impl PyOneHotEncoder {
+    /// Number of features seen in `fit`. Raises AttributeError before fit, as scikit-learn does.
+    #[getter]
+    fn n_features_in_(&self) -> PyResult<usize> {
+        (self
+            .fitted
+            .as_ref()
+            .and_then(|m| m.categories().map(|c| c.len())))
+        .ok_or_else(|| PyAttributeError::new_err("n_features_in_ is not available before fit"))
+    }
+
     #[new]
     fn new() -> Self {
         Self { fitted: None }
@@ -699,6 +731,16 @@ impl PyOrdinalEncoder {
 
 #[pymethods]
 impl PyOrdinalEncoder {
+    /// Number of features seen in `fit`. Raises AttributeError before fit, as scikit-learn does.
+    #[getter]
+    fn n_features_in_(&self) -> PyResult<usize> {
+        (self
+            .fitted
+            .as_ref()
+            .and_then(|m| m.categories().map(|c| c.len())))
+        .ok_or_else(|| PyAttributeError::new_err("n_features_in_ is not available before fit"))
+    }
+
     #[new]
     fn new() -> Self {
         Self { fitted: None }
@@ -868,6 +910,16 @@ impl PySimpleImputer {
 
 #[pymethods]
 impl PySimpleImputer {
+    /// Number of features seen in `fit`. Raises AttributeError before fit, as scikit-learn does.
+    #[getter]
+    fn n_features_in_(&self) -> PyResult<usize> {
+        (self
+            .fitted
+            .as_ref()
+            .and_then(|m| m.statistics().map(|s| s.len())))
+        .ok_or_else(|| PyAttributeError::new_err("n_features_in_ is not available before fit"))
+    }
+
     /// Constructor parameters, as scikit-learn names them.
     #[new]
     #[pyo3(signature = (strategy="mean", fill_value=0.0))]
