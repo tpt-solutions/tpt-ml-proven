@@ -29,7 +29,7 @@ one thread (1.80 to 2.09 s), because the portable code already compiles to good 
 and the per-centre reduction costs as much as the wider lanes save. It was faster only
 marginally on all cores. It was removed.
 
-Thread scaling for tpt-ml-proven (same data and settings):
+Thread scaling for the parallel-update version, before the fused pass (same data and settings):
 
 | Threads | 1 | 2 | 4 | 8 | 20 |
 | --- | --- | --- | --- | --- | --- |
@@ -65,8 +65,8 @@ thread. Random 50-dimensional data has distances that concentrate, so the bounds
 rarely prove an assignment, and the extra inertia pass costs more than it saves. The
 change was reverted. It may help on clustered data, which is not the benchmark here.
 
-Not yet tried: an AVX2 distance kernel selected at run time. The build targets
-baseline x86-64 (SSE2), and scikit-learn's BLAS uses wider vectors.
+The build targets baseline x86-64 (SSE2), while scikit-learn's BLAS uses wider vectors.
+That is the likeliest cause of the single-thread gap.
 
 ## Status against the target
 
@@ -74,7 +74,7 @@ The target is at least 2× faster than scikit-learn on the same hardware. **It i
 met.** On one thread we are about 1.16× slower (1.61 s against 1.39 s). With all cores we
 are level (0.42 s against 0.43 s), which is about 1.0× and not 2×.
 
-Changes that helped the single-thread path, from 6.26 s to 2.67 s:
+Changes that helped the single-thread path, from 6.26 s to 1.45 s (before the fused pass):
 
 - Distance kernel with eight independent accumulators, so the loop vectorises.
 - Row access through `row_slice` where the view is contiguous, instead of per-element
@@ -89,13 +89,15 @@ Open problems:
   (4096 rows per chunk) and merged in chunk order, so results are identical for any
   thread count. This took the 20-thread time from 2.06 s to 0.72 s. The earlier 5.07 s
   figure was not reproduced on a second run, so treat it as noise.
-- **Remaining gaps:** about 1.4× with all cores, and level on one thread. Reaching 2×
-  would need the AVX2 kernel described above, plus a cheaper update step.
-  The threads now scale well up to 8, and flatten after that.
+- **Remaining gap:** about 1.16× slower on one thread (1.61 s against 1.39 s). With all
+  cores the fused pass is level with scikit-learn (0.42 s against 0.43 s). Reaching 2× would
+  need a kernel faster than scikit-learn's BLAS, and the AVX2 attempt above did not manage
+  that. The threads scale well up to 8, and flatten after that.
 - **Gap to scikit-learn on one thread.** scikit-learn computes distances with a
   matrix-multiply formulation (`|x|² − 2x·c + |c|²`) through BLAS. Matching that
   likely needs either a blocked kernel written here, or a BLAS dependency, which the
   licence rule for runtime dependencies makes awkward.
 
-Results are not yet from CI. The benchmark job is not in `ci.yml`. It is meant to run
-as a non-blocking report.
+The benchmark job runs in `ci.yml` as a non-blocking report, with results in the job
+summary and as an artifact. It has not yet run on GitHub, so the figures above come from a
+local Windows machine.
