@@ -18,6 +18,7 @@ use tpt_ml_proven_core::{
 };
 
 use crate::cholesky_solve;
+use tpt_ml_proven_core::persist::{kind, Reader, Writer};
 
 /// Softmax of `z`, computed stably, in place.
 fn softmax(z: &mut [f64]) {
@@ -359,5 +360,78 @@ impl<F: Float> Predictor for MulticlassLogistic<F> {
                 F::from_f64(f.classes[best])
             })
             .collect())
+    }
+}
+
+// ---------------------------------------------------------------- model files
+
+impl<F: Float> MulticlassLogistic<F> {
+    /// Serialises the model (parameters and fitted state) to a model file.
+    pub fn to_bytes(&self) -> Result<Vec<u8>, Error> {
+        let mut w = Writer::new(kind::MULTICLASS_LOGISTIC);
+        w.f64(self.c);
+        w.usize(self.max_iter);
+        w.f64(self.tol);
+        match &self.fitted {
+            None => w.bool(false),
+            Some(f) => {
+                w.bool(true);
+                w.f64s(&f.classes);
+                w.f64s(&f.coef);
+                w.f64s(&f.intercept);
+                w.usize(f.cols);
+                w.usize(f.n_iter);
+            }
+        }
+        Ok(w.finish())
+    }
+
+    /// Loads a model written by [`MulticlassLogistic::to_bytes`].
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, Error> {
+        let mut r = Reader::new(bytes, kind::MULTICLASS_LOGISTIC)?;
+        let c = r.f64()?;
+        let max_iter = r.usize()?;
+        let tol = r.f64()?;
+        let fitted = if r.bool()? {
+            let classes = r.f64s()?;
+            let coef = r.f64s()?;
+            let intercept = r.f64s()?;
+            let cols = r.usize()?;
+            let n_iter = r.usize()?;
+            let k = classes.len();
+            if k < 2 || coef.len() != k * cols || intercept.len() != k {
+                return Err(Error::Format { reason: "multiclass model shapes are inconsistent" });
+            }
+            Some(Fitted { classes, coef, intercept, cols, n_iter })
+        } else {
+            None
+        };
+        r.finish()?;
+        if !(c.is_finite() && c > 0.0) {
+            return Err(Error::Format { reason: "logistic C is not finite and positive" });
+        }
+        Ok(Self {
+            c,
+            max_iter,
+            tol,
+            fitted,
+            marker: core::marker::PhantomData,
+        })
+    }
+}
+
+#[cfg(test)]
+mod persist_tests {
+    use super::*;
+    use tpt_ml_proven_core::{DenseView, SupervisedEstimator};
+
+    #[test]
+    fn fitted_multiclass_model_round_trips() {
+        let x = [0.0_f64, 0.0, 0.2, 0.1, 4.0, 0.0, 4.2, 0.1, 0.0, 4.0, 0.1, 4.2];
+        let y = [0.0, 0.0, 1.0, 1.0, 2.0, 2.0];
+        let mut m = MulticlassLogistic::<f64>::new(1.0);
+        SupervisedEstimator::fit(&mut m, DenseView::new(&x, 6, 2).unwrap(), &y[..]).unwrap();
+        let loaded = MulticlassLogistic::<f64>::from_bytes(&m.to_bytes().unwrap()).unwrap();
+        assert_eq!(loaded, m);
     }
 }

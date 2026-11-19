@@ -19,6 +19,7 @@ use tpt_ml_proven_core::{
 };
 
 use crate::eigen::symmetric_eigen;
+use tpt_ml_proven_core::persist::{kind, Reader, Writer};
 
 /// Tolerance for the orthogonality and unit-norm contract checks.
 const ORTHO_TOL: f64 = 1e-8;
@@ -301,4 +302,82 @@ fn unit_norms(comps: &[Vec<f64>]) -> bool {
         let norm: f64 = v.iter().map(|x| x * x).sum();
         (norm - 1.0).abs() <= ORTHO_TOL
     })
+}
+
+// ---------------------------------------------------------------- model files
+
+impl<F: Float> Pca<F> {
+    /// Serialises the estimator (parameters and fitted state) to a model file.
+    pub fn to_bytes(&self) -> Result<Vec<u8>, Error> {
+        let mut w = Writer::new(kind::PCA);
+        w.usize(self.n_components);
+        match &self.fitted {
+            None => w.bool(false),
+            Some(f) => {
+                w.bool(true);
+                w.f64s(&f.mean.iter().map(|v| v.to_f64()).collect::<Vec<_>>());
+                w.usize(f.components.rows());
+                w.usize(f.components.cols());
+                let flat: Vec<f64> = (0..f.components.rows())
+                    .flat_map(|r| (0..f.components.cols()).map(move |c| (r, c)))
+                    .map(|(r, c)| f.components.get(r, c).to_f64())
+                    .collect();
+                w.f64s(&flat);
+                w.f64s(&f.explained_variance.iter().map(|v| v.to_f64()).collect::<Vec<_>>());
+                w.f64s(&f.explained_variance_ratio.iter().map(|v| v.to_f64()).collect::<Vec<_>>());
+                w.f64(f.total_variance.to_f64());
+            }
+        }
+        Ok(w.finish())
+    }
+
+    /// Loads an estimator written by [`Pca::to_bytes`].
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, Error> {
+        let mut r = Reader::new(bytes, kind::PCA)?;
+        let n_components = r.usize()?;
+        let fitted = if r.bool()? {
+            let to_f = |v: Vec<f64>| v.into_iter().map(F::from_f64).collect::<Vec<F>>();
+            let mean = to_f(r.f64s()?);
+            let rows = r.usize()?;
+            let cols = r.usize()?;
+            let flat = r.f64s()?;
+            let explained_variance = to_f(r.f64s()?);
+            let explained_variance_ratio = to_f(r.f64s()?);
+            let total_variance = F::from_f64(r.f64()?);
+            if flat.len() != rows * cols || rows != n_components || mean.len() != cols {
+                return Err(Error::Format { reason: "pca model shapes are inconsistent" });
+            }
+            if explained_variance.len() != rows || explained_variance_ratio.len() != rows {
+                return Err(Error::Format { reason: "pca variance lengths are inconsistent" });
+            }
+            let components = Dense::from_vec(to_f(flat), rows, cols)
+                .map_err(|_| Error::Format { reason: "pca components have the wrong size" })?;
+            Some(Fitted {
+                mean,
+                components,
+                explained_variance,
+                explained_variance_ratio,
+                total_variance,
+            })
+        } else {
+            None
+        };
+        r.finish()?;
+        Ok(Self { n_components, fitted })
+    }
+}
+
+#[cfg(test)]
+mod persist_tests {
+    use super::*;
+    use tpt_ml_proven_core::DenseView;
+
+    #[test]
+    fn fitted_pca_round_trips() {
+        let x = [1.0_f64, 2.0, 2.0, 4.1, 3.0, 5.9, 4.0, 8.2, 5.0, 9.9];
+        let mut p = Pca::<f64>::new(1);
+        UnsupervisedEstimator::fit(&mut p, DenseView::new(&x, 5, 2).unwrap()).unwrap();
+        let loaded = Pca::<f64>::from_bytes(&p.to_bytes().unwrap()).unwrap();
+        assert_eq!(loaded, p);
+    }
 }

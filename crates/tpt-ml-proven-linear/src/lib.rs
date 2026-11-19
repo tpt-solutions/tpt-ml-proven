@@ -15,6 +15,7 @@
 
 mod logistic;
 mod multiclass;
+mod persist;
 
 pub use logistic::LogisticRegression;
 pub use multiclass::MulticlassLogistic;

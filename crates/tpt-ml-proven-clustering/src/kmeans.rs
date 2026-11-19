@@ -24,6 +24,7 @@ use tpt_ml_proven_core::{
 };
 
 use crate::rng::SplitMix64;
+use tpt_ml_proven_core::persist::{kind, Reader, Writer};
 
 /// How initial centres are chosen.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -768,4 +769,120 @@ fn random_init<F: Float, X: ArrayView<Elem = F>>(x: &X, k: usize, rng: &mut Spli
         centers.extend(copy_row(x, order[i]));
     }
     centers
+}
+
+// ---------------------------------------------------------------- model files
+
+impl<F: Float> KMeans<F> {
+    /// Serialises the estimator (parameters and fitted state) to a model file.
+    pub fn to_bytes(&self) -> Result<Vec<u8>, Error> {
+        let mut w = Writer::new(kind::KMEANS);
+        w.usize(self.n_clusters);
+        w.usize(self.max_iter);
+        w.f64(self.tol);
+        w.usize(match self.init {
+            Init::KMeansPlusPlus => 0,
+            Init::Random => 1,
+        });
+        w.u64(self.seed);
+        w.usize(self.threads);
+        match &self.initial_centers {
+            None => w.bool(false),
+            Some(c) => {
+                w.bool(true);
+                w.f64s(&c.iter().map(|v| v.to_f64()).collect::<Vec<_>>());
+            }
+        }
+        match &self.fitted {
+            None => w.bool(false),
+            Some(f) => {
+                w.bool(true);
+                w.usize(f.centers.rows());
+                w.usize(f.centers.cols());
+                let flat: Vec<f64> = (0..f.centers.rows())
+                    .flat_map(|r| (0..f.centers.cols()).map(move |c| (r, c)))
+                    .map(|(r, c)| f.centers.get(r, c).to_f64())
+                    .collect();
+                w.f64s(&flat);
+                w.usizes(&f.labels);
+                w.f64(f.inertia.to_f64());
+                w.usize(f.n_iter);
+                w.bool(f.converged);
+            }
+        }
+        Ok(w.finish())
+    }
+
+    /// Loads an estimator written by [`KMeans::to_bytes`].
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, Error> {
+        let mut r = Reader::new(bytes, kind::KMEANS)?;
+        let n_clusters = r.usize()?;
+        let max_iter = r.usize()?;
+        let tol = r.f64()?;
+        let init = match r.usize()? {
+            0 => Init::KMeansPlusPlus,
+            1 => Init::Random,
+            _ => return Err(Error::Format { reason: "unknown k-means initialisation" }),
+        };
+        let seed = r.u64()?;
+        let threads = r.usize()?;
+        let initial_centers = if r.bool()? {
+            Some(r.f64s()?.into_iter().map(F::from_f64).collect())
+        } else {
+            None
+        };
+        let fitted = if r.bool()? {
+            let rows = r.usize()?;
+            let cols = r.usize()?;
+            let flat = r.f64s()?;
+            let labels = r.usizes()?;
+            let inertia = F::from_f64(r.f64()?);
+            let n_iter = r.usize()?;
+            let converged = r.bool()?;
+            if flat.len() != rows * cols || labels.is_empty() || rows != n_clusters {
+                return Err(Error::Format { reason: "k-means model shapes are inconsistent" });
+            }
+            if labels.iter().any(|&l| l >= n_clusters) {
+                return Err(Error::Format { reason: "k-means label is out of range" });
+            }
+            let data: Vec<F> = flat.into_iter().map(F::from_f64).collect();
+            let centers = Dense::from_vec(data, rows, cols)
+                .map_err(|_| Error::Format { reason: "k-means centres have the wrong size" })?;
+            Some(Fitted { centers, labels, inertia, n_iter, converged })
+        } else {
+            None
+        };
+        r.finish()?;
+        if n_clusters == 0 {
+            return Err(Error::Format { reason: "k-means cluster count is zero" });
+        }
+        Ok(Self {
+            n_clusters,
+            max_iter,
+            tol,
+            init,
+            seed,
+            threads,
+            initial_centers,
+            fitted,
+        })
+    }
+}
+
+#[cfg(test)]
+mod persist_tests {
+    use super::*;
+    use tpt_ml_proven_core::DenseView;
+
+    #[test]
+    fn fitted_kmeans_round_trips_and_predicts_the_same() {
+        let x = [0.0_f64, 0.0, 0.1, 0.0, 0.0, 0.1, 10.0, 10.0, 10.1, 10.0, 10.0, 10.1];
+        let mut km = KMeans::<f64>::new(2).with_seed(3);
+        UnsupervisedEstimator::fit(&mut km, DenseView::new(&x, 6, 2).unwrap()).unwrap();
+        let loaded = KMeans::<f64>::from_bytes(&km.to_bytes().unwrap()).unwrap();
+        assert_eq!(loaded, km);
+        let a = km.predict(DenseView::new(&x, 6, 2).unwrap()).unwrap();
+        let b = loaded.predict(DenseView::new(&x, 6, 2).unwrap()).unwrap();
+        assert_eq!(a, b);
+    }
 }

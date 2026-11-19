@@ -15,6 +15,7 @@ use tpt_ml_proven_core::{
 };
 
 use crate::cholesky_solve;
+use tpt_ml_proven_core::persist::{kind, Reader, Writer};
 
 /// Numerically stable `log(1 + e^z)`.
 fn softplus(z: f64) -> f64 {
@@ -271,5 +272,69 @@ impl<F: Float> Predictor for LogisticRegression<F> {
                 }
             })
             .collect())
+    }
+}
+
+// ---------------------------------------------------------------- model files
+
+impl<F: Float> LogisticRegression<F> {
+    /// Serialises the model (parameters and fitted state) to a model file.
+    pub fn to_bytes(&self) -> Result<Vec<u8>, Error> {
+        let mut w = Writer::new(kind::LOGISTIC);
+        w.f64(self.c);
+        w.usize(self.max_iter);
+        w.f64(self.tol);
+        match &self.fitted {
+            None => w.bool(false),
+            Some((coef, intercept, iters)) => {
+                w.bool(true);
+                w.f64s(coef);
+                w.f64(*intercept);
+                w.usize(*iters);
+            }
+        }
+        Ok(w.finish())
+    }
+
+    /// Loads a model written by [`LogisticRegression::to_bytes`].
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, Error> {
+        let mut r = Reader::new(bytes, kind::LOGISTIC)?;
+        let c = r.f64()?;
+        let max_iter = r.usize()?;
+        let tol = r.f64()?;
+        let fitted = if r.bool()? {
+            let coef = r.f64s()?;
+            let intercept = r.f64()?;
+            Some((coef, intercept, r.usize()?))
+        } else {
+            None
+        };
+        r.finish()?;
+        if !(c.is_finite() && c > 0.0) {
+            return Err(Error::Format { reason: "logistic C is not finite and positive" });
+        }
+        Ok(Self {
+            c,
+            max_iter,
+            tol,
+            fitted,
+            marker: core::marker::PhantomData,
+        })
+    }
+}
+
+#[cfg(test)]
+mod persist_tests {
+    use super::*;
+    use tpt_ml_proven_core::{DenseView, SupervisedEstimator};
+
+    #[test]
+    fn fitted_binary_model_round_trips() {
+        let x = [0.0_f64, 0.1, 0.2, 0.0, 0.1, 0.3, 2.0, 2.1, 1.9, 2.2, 2.3, 1.8];
+        let y = [0.0, 0.0, 0.0, 1.0, 1.0, 1.0];
+        let mut m = LogisticRegression::<f64>::new(2.0);
+        SupervisedEstimator::fit(&mut m, DenseView::new(&x, 6, 2).unwrap(), &y[..]).unwrap();
+        let loaded = LogisticRegression::<f64>::from_bytes(&m.to_bytes().unwrap()).unwrap();
+        assert_eq!(loaded, m);
     }
 }
