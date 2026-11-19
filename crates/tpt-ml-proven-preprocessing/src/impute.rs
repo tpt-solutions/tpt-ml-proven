@@ -155,62 +155,6 @@ impl<F: Float> Transformer for SimpleImputer<F> {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use tpt_ml_proven_core::DenseView;
-
-    const NAN: f64 = f64::NAN;
-
-    fn impute(strategy: ImputeStrategy, data: &[f64], rows: usize, cols: usize) -> Vec<f64> {
-        let mut imp = SimpleImputer::new(strategy);
-        imp.fit_transform(DenseView::new(data, rows, cols).unwrap())
-            .unwrap()
-            .into_vec()
-    }
-
-    #[test]
-    fn mean_and_median_fill_observed_statistics() {
-        let data = [1.0_f64, NAN, 3.0, 10.0, NAN, 30.0];
-        assert_eq!(
-            impute(ImputeStrategy::Mean, &data, 3, 2),
-            vec![1.0, 20.0, 3.0, 10.0, 2.0, 30.0]
-        );
-        let data = [1.0_f64, NAN, 2.0, 10.0, 9.0, 30.0];
-        assert_eq!(
-            impute(ImputeStrategy::Median, &data, 3, 2),
-            vec![1.0, 20.0, 2.0, 10.0, 9.0, 30.0]
-        );
-    }
-
-    #[test]
-    fn most_frequent_breaks_ties_towards_the_smallest() {
-        // Column 0 is [2, NaN, 1]: the observed values tie at 1 and 2, so the fill is 1.
-        let data = [2.0_f64, 2.0, NAN, 1.0, 1.0, 3.0];
-        let out = impute(ImputeStrategy::MostFrequent, &data, 3, 2);
-        assert_eq!(out[2], 1.0);
-    }
-
-    #[test]
-    fn constant_fills_without_looking_at_data() {
-        let data = [NAN, 5.0, 2.0, NAN];
-        assert_eq!(
-            impute(ImputeStrategy::Constant(-1.0), &data, 2, 2),
-            vec![-1.0, 5.0, 2.0, -1.0]
-        );
-    }
-
-    #[test]
-    fn all_missing_column_is_an_error() {
-        let data = [NAN, 1.0, NAN, 2.0];
-        let mut imp = SimpleImputer::new(ImputeStrategy::Mean);
-        assert!(matches!(
-            UnsupervisedEstimator::fit(&mut imp, DenseView::new(&data, 2, 2).unwrap()),
-            Err(Error::InvalidParameter { .. })
-        ));
-    }
-}
-
 // ---------------------------------------------------------------- model files
 
 use tpt_ml_proven_core::persist::{kind, Reader, Writer};
@@ -268,6 +212,69 @@ impl<F: Float> SimpleImputer<F> {
             fill,
             marker: core::marker::PhantomData,
         })
+    }
+}
+
+impl<F: Float> Default for SimpleImputer<F> {
+    /// The default settings, as documented on the constructor.
+    fn default() -> Self {
+        Self::new(ImputeStrategy::Mean)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tpt_ml_proven_core::DenseView;
+
+    const NAN: f64 = f64::NAN;
+
+    fn impute(strategy: ImputeStrategy, data: &[f64], rows: usize, cols: usize) -> Vec<f64> {
+        let mut imp = SimpleImputer::new(strategy);
+        imp.fit_transform(DenseView::new(data, rows, cols).unwrap())
+            .unwrap()
+            .into_vec()
+    }
+
+    #[test]
+    fn mean_and_median_fill_observed_statistics() {
+        let data = [1.0_f64, NAN, 3.0, 10.0, NAN, 30.0];
+        assert_eq!(
+            impute(ImputeStrategy::Mean, &data, 3, 2),
+            vec![1.0, 20.0, 3.0, 10.0, 2.0, 30.0]
+        );
+        let data = [1.0_f64, NAN, 2.0, 10.0, 9.0, 30.0];
+        assert_eq!(
+            impute(ImputeStrategy::Median, &data, 3, 2),
+            vec![1.0, 20.0, 2.0, 10.0, 9.0, 30.0]
+        );
+    }
+
+    #[test]
+    fn most_frequent_breaks_ties_towards_the_smallest() {
+        // Column 0 is [2, NaN, 1]: the observed values tie at 1 and 2, so the fill is 1.
+        let data = [2.0_f64, 2.0, NAN, 1.0, 1.0, 3.0];
+        let out = impute(ImputeStrategy::MostFrequent, &data, 3, 2);
+        assert_eq!(out[2], 1.0);
+    }
+
+    #[test]
+    fn constant_fills_without_looking_at_data() {
+        let data = [NAN, 5.0, 2.0, NAN];
+        assert_eq!(
+            impute(ImputeStrategy::Constant(-1.0), &data, 2, 2),
+            vec![-1.0, 5.0, 2.0, -1.0]
+        );
+    }
+
+    #[test]
+    fn all_missing_column_is_an_error() {
+        let data = [NAN, 1.0, NAN, 2.0];
+        let mut imp = SimpleImputer::new(ImputeStrategy::Mean);
+        assert!(matches!(
+            UnsupervisedEstimator::fit(&mut imp, DenseView::new(&data, 2, 2).unwrap()),
+            Err(Error::InvalidParameter { .. })
+        ));
     }
 }
 

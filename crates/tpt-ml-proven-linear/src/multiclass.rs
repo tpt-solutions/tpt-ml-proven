@@ -430,6 +430,23 @@ impl<F: Float> MulticlassLogistic<F> {
     }
 }
 
+// ---------------------------------------------------------------- score
+
+impl<F: Float> MulticlassLogistic<F> {
+    /// Fraction of rows of `x` whose predicted label equals the label in `y`.
+    pub fn score<X: ArrayView<Elem = F>>(&self, x: X, y: &[F]) -> Result<f64, Error> {
+        let pred = Predictor::predict(self, x)?;
+        tpt_ml_proven_core::metrics::accuracy(y, &pred)
+    }
+}
+
+impl<F: Float> Default for MulticlassLogistic<F> {
+    /// The default settings, as documented on the constructor.
+    fn default() -> Self {
+        Self::new(1.0)
+    }
+}
+
 #[cfg(test)]
 mod persist_tests {
     use super::*;

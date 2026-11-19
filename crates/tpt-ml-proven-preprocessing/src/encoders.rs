@@ -211,49 +211,6 @@ impl<F: Float> Default for OrdinalEncoder<F> {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use tpt_ml_proven_core::DenseView;
-
-    #[test]
-    fn one_hot_encodes_sorted_categories() {
-        // Column 0 categories [1, 3]; column 1 categories [10, 20].
-        let data = [3.0_f64, 10.0, 1.0, 20.0, 3.0, 10.0];
-        let mut e = OneHotEncoder::<f64>::new();
-        let out = e
-            .fit_transform(DenseView::new(&data, 3, 2).unwrap())
-            .unwrap();
-        assert_eq!(out.cols(), 4);
-        assert_eq!(
-            out.into_vec(),
-            vec![0.0, 1.0, 1.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 1.0, 1.0, 0.0]
-        );
-    }
-
-    #[test]
-    fn ordinal_encodes_positions() {
-        let data = [3.0_f64, 10.0, 1.0, 20.0, 3.0, 10.0];
-        let mut e = OrdinalEncoder::<f64>::new();
-        let out = e
-            .fit_transform(DenseView::new(&data, 3, 2).unwrap())
-            .unwrap();
-        assert_eq!(out.into_vec(), vec![1.0, 0.0, 0.0, 1.0, 1.0, 0.0]);
-    }
-
-    #[test]
-    fn unknown_category_is_an_error() {
-        let data = [1.0_f64, 2.0];
-        let mut e = OrdinalEncoder::<f64>::new();
-        UnsupervisedEstimator::fit(&mut e, DenseView::new(&data, 2, 1).unwrap()).unwrap();
-        let unseen = [9.0_f64];
-        assert!(matches!(
-            e.transform(DenseView::new(&unseen, 1, 1).unwrap()),
-            Err(Error::InvalidParameter { .. })
-        ));
-    }
-}
-
 // ---------------------------------------------------------------- model files
 
 use tpt_ml_proven_core::persist::{kind, Reader, Writer};
@@ -332,6 +289,49 @@ impl<F: Float> OrdinalEncoder<F> {
             categories,
             marker: core::marker::PhantomData,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tpt_ml_proven_core::DenseView;
+
+    #[test]
+    fn one_hot_encodes_sorted_categories() {
+        // Column 0 categories [1, 3]; column 1 categories [10, 20].
+        let data = [3.0_f64, 10.0, 1.0, 20.0, 3.0, 10.0];
+        let mut e = OneHotEncoder::<f64>::new();
+        let out = e
+            .fit_transform(DenseView::new(&data, 3, 2).unwrap())
+            .unwrap();
+        assert_eq!(out.cols(), 4);
+        assert_eq!(
+            out.into_vec(),
+            vec![0.0, 1.0, 1.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 1.0, 1.0, 0.0]
+        );
+    }
+
+    #[test]
+    fn ordinal_encodes_positions() {
+        let data = [3.0_f64, 10.0, 1.0, 20.0, 3.0, 10.0];
+        let mut e = OrdinalEncoder::<f64>::new();
+        let out = e
+            .fit_transform(DenseView::new(&data, 3, 2).unwrap())
+            .unwrap();
+        assert_eq!(out.into_vec(), vec![1.0, 0.0, 0.0, 1.0, 1.0, 0.0]);
+    }
+
+    #[test]
+    fn unknown_category_is_an_error() {
+        let data = [1.0_f64, 2.0];
+        let mut e = OrdinalEncoder::<f64>::new();
+        UnsupervisedEstimator::fit(&mut e, DenseView::new(&data, 2, 1).unwrap()).unwrap();
+        let unseen = [9.0_f64];
+        assert!(matches!(
+            e.transform(DenseView::new(&unseen, 1, 1).unwrap()),
+            Err(Error::InvalidParameter { .. })
+        ));
     }
 }
 

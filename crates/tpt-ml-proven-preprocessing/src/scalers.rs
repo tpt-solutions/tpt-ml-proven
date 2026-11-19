@@ -379,80 +379,6 @@ impl<F: Float> Default for RobustScaler<F> {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use tpt_ml_proven_core::DenseView;
-
-    fn view(data: &[f64], rows: usize, cols: usize) -> DenseView<'_, f64> {
-        DenseView::new(data, rows, cols).unwrap()
-    }
-
-    #[test]
-    fn standard_scaler_gives_zero_mean_unit_variance() {
-        let data = [1.0_f64, 10.0, 2.0, 20.0, 3.0, 30.0];
-        let mut s = StandardScaler::new();
-        let out = s.fit_transform(view(&data, 3, 2)).unwrap();
-        for c in 0..2 {
-            let col: Vec<f64> = (0..3).map(|r| out.get(r, c)).collect();
-            let mean = col.iter().sum::<f64>() / 3.0;
-            let var = col.iter().map(|v| v * v).sum::<f64>() / 3.0;
-            assert!(mean.abs() < 1e-12 && (var - 1.0).abs() < 1e-12);
-        }
-    }
-
-    #[test]
-    fn constant_feature_maps_to_zero_not_nan() {
-        let data = [5.0_f64, 1.0, 5.0, 2.0];
-        let out = StandardScaler::new()
-            .fit_transform(view(&data, 2, 2))
-            .unwrap();
-        assert_eq!(out.get(0, 0), 0.0);
-        assert!(out.into_vec().iter().all(|v| v.is_finite()));
-    }
-
-    #[test]
-    fn minmax_maps_to_unit_interval_and_inverts() {
-        let data = [2.0_f64, -4.0, 4.0, 0.0, 6.0, 4.0];
-        let mut s = MinMaxScaler::new();
-        let out = s.fit_transform(view(&data, 3, 2)).unwrap();
-        assert_eq!(out.get(0, 0), 0.0);
-        assert_eq!(out.get(2, 0), 1.0);
-        let back = s.inverse_transform(&out).unwrap();
-        for (a, b) in back.into_vec().iter().zip(&data) {
-            assert!((a - b).abs() < 1e-12);
-        }
-    }
-
-    #[test]
-    fn robust_scaler_centres_on_median_and_ignores_outlier_scale() {
-        // Sorted: 1..5, 1000. Linear quantiles: median 3.5, q25 2.25, q75 4.75, IQR 2.5.
-        let data = [1.0_f64, 2.0, 3.0, 4.0, 5.0, 1000.0];
-        let out = RobustScaler::new()
-            .fit_transform(view(&data, 6, 1))
-            .unwrap();
-        assert!((out.get(2, 0) - (3.0 - 3.5) / 2.5).abs() < 1e-12);
-        // The outlier stays far out, but the scale was not dragged by it.
-        assert!((out.get(5, 0) - (1000.0 - 3.5) / 2.5).abs() < 1e-9);
-    }
-
-    #[test]
-    fn transform_before_fit_and_width_mismatch_are_errors() {
-        let data = [1.0_f64, 2.0, 3.0, 4.0];
-        let s = StandardScaler::new();
-        assert_eq!(
-            s.transform(view(&data, 2, 2)).unwrap_err(),
-            Error::NotFitted
-        );
-        let mut s = StandardScaler::new();
-        UnsupervisedEstimator::fit(&mut s, view(&data, 2, 2)).unwrap();
-        assert!(matches!(
-            s.transform(view(&data, 4, 1)).unwrap_err(),
-            Error::Shape(_)
-        ));
-    }
-}
-
 // ---------------------------------------------------------------- model files
 
 use tpt_ml_proven_core::persist::{kind, Reader, Writer};
@@ -589,6 +515,80 @@ impl<F: Float> StandardScaler<F> {
             scale,
             marker: core::marker::PhantomData,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tpt_ml_proven_core::DenseView;
+
+    fn view(data: &[f64], rows: usize, cols: usize) -> DenseView<'_, f64> {
+        DenseView::new(data, rows, cols).unwrap()
+    }
+
+    #[test]
+    fn standard_scaler_gives_zero_mean_unit_variance() {
+        let data = [1.0_f64, 10.0, 2.0, 20.0, 3.0, 30.0];
+        let mut s = StandardScaler::new();
+        let out = s.fit_transform(view(&data, 3, 2)).unwrap();
+        for c in 0..2 {
+            let col: Vec<f64> = (0..3).map(|r| out.get(r, c)).collect();
+            let mean = col.iter().sum::<f64>() / 3.0;
+            let var = col.iter().map(|v| v * v).sum::<f64>() / 3.0;
+            assert!(mean.abs() < 1e-12 && (var - 1.0).abs() < 1e-12);
+        }
+    }
+
+    #[test]
+    fn constant_feature_maps_to_zero_not_nan() {
+        let data = [5.0_f64, 1.0, 5.0, 2.0];
+        let out = StandardScaler::new()
+            .fit_transform(view(&data, 2, 2))
+            .unwrap();
+        assert_eq!(out.get(0, 0), 0.0);
+        assert!(out.into_vec().iter().all(|v| v.is_finite()));
+    }
+
+    #[test]
+    fn minmax_maps_to_unit_interval_and_inverts() {
+        let data = [2.0_f64, -4.0, 4.0, 0.0, 6.0, 4.0];
+        let mut s = MinMaxScaler::new();
+        let out = s.fit_transform(view(&data, 3, 2)).unwrap();
+        assert_eq!(out.get(0, 0), 0.0);
+        assert_eq!(out.get(2, 0), 1.0);
+        let back = s.inverse_transform(&out).unwrap();
+        for (a, b) in back.into_vec().iter().zip(&data) {
+            assert!((a - b).abs() < 1e-12);
+        }
+    }
+
+    #[test]
+    fn robust_scaler_centres_on_median_and_ignores_outlier_scale() {
+        // Sorted: 1..5, 1000. Linear quantiles: median 3.5, q25 2.25, q75 4.75, IQR 2.5.
+        let data = [1.0_f64, 2.0, 3.0, 4.0, 5.0, 1000.0];
+        let out = RobustScaler::new()
+            .fit_transform(view(&data, 6, 1))
+            .unwrap();
+        assert!((out.get(2, 0) - (3.0 - 3.5) / 2.5).abs() < 1e-12);
+        // The outlier stays far out, but the scale was not dragged by it.
+        assert!((out.get(5, 0) - (1000.0 - 3.5) / 2.5).abs() < 1e-9);
+    }
+
+    #[test]
+    fn transform_before_fit_and_width_mismatch_are_errors() {
+        let data = [1.0_f64, 2.0, 3.0, 4.0];
+        let s = StandardScaler::new();
+        assert_eq!(
+            s.transform(view(&data, 2, 2)).unwrap_err(),
+            Error::NotFitted
+        );
+        let mut s = StandardScaler::new();
+        UnsupervisedEstimator::fit(&mut s, view(&data, 2, 2)).unwrap();
+        assert!(matches!(
+            s.transform(view(&data, 4, 1)).unwrap_err(),
+            Error::Shape(_)
+        ));
     }
 }
 

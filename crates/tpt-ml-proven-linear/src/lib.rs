@@ -534,6 +534,57 @@ impl<F: Float> Predictor for Lasso<F> {
     }
 }
 
+// ---------------------------------------------------------------- score
+
+impl<F: Float> Ridge<F> {
+    /// Coefficient of determination R² of the predictions for `x` against `y`.
+    pub fn score<X: ArrayView<Elem = F>>(&self, x: X, y: &[F]) -> Result<f64, Error> {
+        let pred = Predictor::predict(self, x)?;
+        tpt_ml_proven_core::metrics::r2(y, &pred)
+    }
+}
+
+// ---------------------------------------------------------------- score
+
+impl<F: Float> ElasticNet<F> {
+    /// Coefficient of determination R² of the predictions for `x` against `y`.
+    pub fn score<X: ArrayView<Elem = F>>(&self, x: X, y: &[F]) -> Result<f64, Error> {
+        let pred = Predictor::predict(self, x)?;
+        tpt_ml_proven_core::metrics::r2(y, &pred)
+    }
+}
+
+// ---------------------------------------------------------------- score
+
+impl<F: Float> Lasso<F> {
+    /// Coefficient of determination R² of the predictions for `x` against `y`.
+    pub fn score<X: ArrayView<Elem = F>>(&self, x: X, y: &[F]) -> Result<f64, Error> {
+        let pred = Predictor::predict(self, x)?;
+        tpt_ml_proven_core::metrics::r2(y, &pred)
+    }
+}
+
+impl<F: Float> Default for Ridge<F> {
+    /// The default settings, as documented on the constructor.
+    fn default() -> Self {
+        Self::new(1.0)
+    }
+}
+
+impl<F: Float> Default for Lasso<F> {
+    /// The default settings, as documented on the constructor.
+    fn default() -> Self {
+        Self::new(1.0)
+    }
+}
+
+impl<F: Float> Default for ElasticNet<F> {
+    /// The default settings, as documented on the constructor.
+    fn default() -> Self {
+        Self::new(1.0, 0.5)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

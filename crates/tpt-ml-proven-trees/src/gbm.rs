@@ -381,3 +381,23 @@ impl Predictor for GradientBoostingRegressor {
             .collect())
     }
 }
+
+// ---------------------------------------------------------------- score
+
+impl DecisionTreeRegressor {
+    /// Coefficient of determination R² of the predictions for `x` against `y`.
+    pub fn score<X: ArrayView<Elem = f64>>(&self, x: X, y: &[f64]) -> Result<f64, Error> {
+        let pred = Predictor::predict(self, x)?;
+        tpt_ml_proven_core::metrics::r2(y, &pred)
+    }
+}
+
+// ---------------------------------------------------------------- score
+
+impl GradientBoostingRegressor {
+    /// Coefficient of determination R² of the predictions for `x` against `y`.
+    pub fn score<X: ArrayView<Elem = f64>>(&self, x: X, y: &[f64]) -> Result<f64, Error> {
+        let pred = Predictor::predict(self, x)?;
+        tpt_ml_proven_core::metrics::r2(y, &pred)
+    }
+}
