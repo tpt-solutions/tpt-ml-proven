@@ -19,6 +19,7 @@ mod persist;
 
 pub use logistic::LogisticRegression;
 pub use multiclass::MulticlassLogistic;
+pub use persist::{labelled_binary_from_bytes, labelled_binary_to_bytes};
 
 use tpt_ml_proven_core::error::{Error, ShapeError};
 use tpt_ml_proven_core::{

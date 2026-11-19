@@ -6,10 +6,10 @@
 //! loaded model can be refitted with the same settings.
 
 use tpt_ml_proven_core::error::Error;
-use tpt_ml_proven_core::persist::{kind, Reader, Writer};
+use tpt_ml_proven_core::persist::{dtype, kind, Reader, Writer};
 use tpt_ml_proven_core::Float;
 
-use crate::{ElasticNet, Lasso, Ridge};
+use crate::{ElasticNet, Lasso, LogisticRegression, Ridge};
 
 fn invalid(reason: &'static str) -> Error {
     Error::Format { reason }
@@ -143,6 +143,38 @@ impl<F: Float> Lasso<F> {
         }
         Ok(Lasso(m))
     }
+}
+
+// ---------------------------------------------------------------- labelled binary logistic
+
+/// Writes a binary logistic model together with the two labels it maps to 0 and 1.
+pub fn labelled_binary_to_bytes(
+    model: &LogisticRegression<f64>,
+    classes: [f64; 2],
+) -> Result<Vec<u8>, Error> {
+    let mut w = Writer::with_dtype(kind::LOGISTIC_LABELLED, dtype::F64);
+    w.f64(classes[0]);
+    w.f64(classes[1]);
+    w.bytes(&model.to_bytes()?);
+    Ok(w.finish())
+}
+
+/// Loads a file written by [`labelled_binary_to_bytes`], checking that the labels are distinct
+/// and sorted, as they are when fitted.
+pub fn labelled_binary_from_bytes(
+    bytes: &[u8],
+) -> Result<(LogisticRegression<f64>, [f64; 2]), Error> {
+    let mut r = Reader::new(bytes, kind::LOGISTIC_LABELLED)?;
+    let classes = [r.f64()?, r.f64()?];
+    let inner = r.bytes()?;
+    r.finish()?;
+    if classes[0].is_nan() || classes[1].is_nan() || classes[0] >= classes[1] {
+        return Err(invalid(
+            "labelled logistic classes are not distinct and sorted",
+        ));
+    }
+    let model = LogisticRegression::<f64>::from_bytes(&inner)?;
+    Ok((model, classes))
 }
 
 #[cfg(test)]
