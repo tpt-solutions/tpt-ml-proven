@@ -60,9 +60,11 @@ fn fit_stump(x: &[f64], cols: usize, y: &[usize], idx: &[usize], n_classes: usiz
         total[y[i]] += 1;
     }
     let majority = argmax(&total) as f64;
+    // Threshold f64::MAX sends every finite value left, like an infinite threshold would.
+    // It stays finite so that a saved model passes the finite-value check on load.
     let mut best = Stump {
         feature: 0,
-        threshold: f64::INFINITY,
+        threshold: f64::MAX,
         left: majority,
         right: majority,
     };
@@ -253,6 +255,82 @@ impl<F: Float> Predictor for StumpForest<F> {
     }
 }
 
+// ---------------------------------------------------------------- model files
+
+use tpt_ml_proven_core::persist::{kind, Reader, Writer};
+
+fn invalid(reason: &'static str) -> Error {
+    Error::Format { reason }
+}
+
+impl<F: Float> StumpForest<F> {
+    /// Serialises the forest (settings and fitted stumps) to a model file.
+    pub fn to_bytes(&self) -> Result<Vec<u8>, Error> {
+        let mut w = Writer::for_float::<F>(kind::STUMP_FOREST);
+        w.usize(self.n_estimators);
+        w.u64(self.seed);
+        w.usize(self.n_features);
+        match &self.fitted {
+            None => w.bool(false),
+            Some(stumps) => {
+                w.bool(true);
+                w.usize(stumps.len());
+                for s in stumps {
+                    w.usize(s.feature);
+                    w.f64(s.threshold);
+                    w.f64(s.left);
+                    w.f64(s.right);
+                }
+            }
+        }
+        Ok(w.finish())
+    }
+
+    /// Loads a forest written by [`StumpForest::to_bytes`].
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, Error> {
+        let mut r = Reader::new(bytes, kind::STUMP_FOREST)?;
+        let n_estimators = r.usize()?;
+        let seed = r.u64()?;
+        let n_features = r.usize()?;
+        let fitted = if r.bool()? {
+            let count = r.usize()?;
+            let mut stumps = Vec::new();
+            for _ in 0..count {
+                stumps.push(Stump {
+                    feature: r.usize()?,
+                    threshold: r.f64()?,
+                    left: r.f64()?,
+                    right: r.f64()?,
+                });
+            }
+            Some(stumps)
+        } else {
+            None
+        };
+        r.finish()?;
+        if n_estimators == 0 {
+            return Err(invalid("stump forest has no estimators"));
+        }
+        if let Some(stumps) = &fitted {
+            if stumps.len() != n_estimators {
+                return Err(invalid("stump count differs from n_estimators"));
+            }
+            if n_features == 0 || stumps.iter().any(|s| s.feature >= n_features) {
+                return Err(invalid(
+                    "stump splits on a feature outside the fitted width",
+                ));
+            }
+        }
+        Ok(Self {
+            n_estimators,
+            seed,
+            fitted,
+            n_features,
+            marker: core::marker::PhantomData,
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -323,5 +401,65 @@ mod tests {
             Predictor::predict(&f, DenseView::new(&x, 40, 2).unwrap()).unwrap_err(),
             Error::NotFitted
         );
+    }
+}
+
+#[cfg(test)]
+mod persist_tests {
+    use super::*;
+    use tpt_ml_proven_core::DenseView;
+
+    fn data() -> (Vec<f64>, Vec<f64>) {
+        let mut x = Vec::new();
+        let mut y = Vec::new();
+        for i in 0..40 {
+            let a = i as f64 / 10.0;
+            x.extend([a, (i * 7 % 13) as f64]);
+            y.push(if a < 2.0 { 0.0 } else { 1.0 });
+        }
+        (x, y)
+    }
+
+    #[test]
+    fn fitted_forest_round_trips_and_predicts_identically() {
+        let (x, y) = data();
+        let mut f = StumpForest::<f64>::new(15).with_seed(7);
+        SupervisedEstimator::fit(&mut f, DenseView::new(&x, 40, 2).unwrap(), &y[..]).unwrap();
+        let loaded = StumpForest::<f64>::from_bytes(&f.to_bytes().unwrap()).unwrap();
+        assert_eq!(loaded, f);
+        let a = Predictor::predict(&f, DenseView::new(&x, 40, 2).unwrap()).unwrap();
+        let b = Predictor::predict(&loaded, DenseView::new(&x, 40, 2).unwrap()).unwrap();
+        assert_eq!(a, b);
+    }
+
+    #[test]
+    fn unfitted_forest_round_trips() {
+        let f = StumpForest::<f64>::new(4).with_seed(2);
+        assert_eq!(
+            StumpForest::<f64>::from_bytes(&f.to_bytes().unwrap()).unwrap(),
+            f
+        );
+    }
+
+    #[test]
+    fn a_stump_on_an_unknown_feature_is_refused() {
+        let (x, y) = data();
+        let mut f = StumpForest::<f64>::new(3);
+        SupervisedEstimator::fit(&mut f, DenseView::new(&x, 40, 2).unwrap(), &y[..]).unwrap();
+        // Declare a width no larger than the widest feature any stump splits on.
+        let widest = f
+            .fitted
+            .as_ref()
+            .unwrap()
+            .iter()
+            .map(|s| s.feature)
+            .max()
+            .unwrap();
+        f.n_features = widest;
+        let bytes = f.to_bytes().unwrap();
+        assert!(matches!(
+            StumpForest::<f64>::from_bytes(&bytes),
+            Err(Error::Format { .. })
+        ));
     }
 }

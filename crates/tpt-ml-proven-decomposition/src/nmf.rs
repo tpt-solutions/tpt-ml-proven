@@ -346,3 +346,129 @@ impl<F: Float> Transformer for Nmf<F> {
         Ok(Dense::from_vec(out, rows, k)?)
     }
 }
+
+// ---------------------------------------------------------------- model files
+
+use tpt_ml_proven_core::persist::{kind, Reader, Writer};
+
+fn invalid(reason: &'static str) -> Error {
+    Error::Format { reason }
+}
+
+impl<F: Float> Nmf<F> {
+    /// Serialises the model (settings and fitted factors) to a model file.
+    pub fn to_bytes(&self) -> Result<Vec<u8>, Error> {
+        let mut w = Writer::for_float::<F>(kind::NMF);
+        w.usize(self.n_components);
+        w.usize(self.max_iter);
+        w.f64(self.tol);
+        w.u64(self.seed);
+        match &self.init {
+            None => w.bool(false),
+            Some((w_init, h_init)) => {
+                w.bool(true);
+                w.f64s(w_init);
+                w.f64s(h_init);
+            }
+        }
+        match &self.fitted {
+            None => w.bool(false),
+            Some(f) => {
+                w.bool(true);
+                w.usize(f.cols);
+                w.f64s(&f.components);
+                w.f64s(&f.w);
+                w.usize(f.n_iter);
+                w.f64(f.reconstruction_error);
+            }
+        }
+        Ok(w.finish())
+    }
+
+    /// Loads a model written by [`Nmf::to_bytes`], checking the factor shapes and that every
+    /// factor entry is non-negative.
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, Error> {
+        let mut r = Reader::new(bytes, kind::NMF)?;
+        let n_components = r.usize()?;
+        let max_iter = r.usize()?;
+        let tol = r.f64()?;
+        let seed = r.u64()?;
+        let init = if r.bool()? {
+            Some((r.f64s()?, r.f64s()?))
+        } else {
+            None
+        };
+        let fitted = if r.bool()? {
+            let cols = r.usize()?;
+            let components = r.f64s()?;
+            let w = r.f64s()?;
+            let n_iter = r.usize()?;
+            let reconstruction_error = r.f64()?;
+            if n_components == 0 || cols == 0 {
+                return Err(invalid("NMF has no components or no features"));
+            }
+            if components.len() != n_components * cols {
+                return Err(invalid("NMF H does not match n_components x n_features"));
+            }
+            if w.len() % n_components != 0 {
+                return Err(invalid("NMF W does not match n_components"));
+            }
+            if components.iter().chain(&w).any(|&v| v < 0.0) {
+                return Err(invalid("NMF factors have a negative entry"));
+            }
+            let factors = Dense::from_vec(
+                components.iter().map(|v| F::from_f64(*v)).collect(),
+                n_components,
+                cols,
+            )?;
+            Some(Fitted {
+                components,
+                factors,
+                w,
+                cols,
+                n_iter,
+                reconstruction_error,
+            })
+        } else {
+            None
+        };
+        r.finish()?;
+        Ok(Self {
+            n_components,
+            max_iter,
+            tol,
+            seed,
+            init,
+            fitted,
+            marker: core::marker::PhantomData,
+        })
+    }
+}
+
+#[cfg(test)]
+mod persist_tests {
+    use super::*;
+    use tpt_ml_proven_core::{DenseView, Transformer, UnsupervisedEstimator};
+
+    fn data() -> Vec<f64> {
+        (0..12).map(|i| ((i * 5) % 7) as f64 + 0.5).collect()
+    }
+
+    #[test]
+    fn fitted_nmf_round_trips_and_transforms_identically() {
+        let x = data();
+        let mut m = Nmf::<f64>::new(2).with_seed(3);
+        UnsupervisedEstimator::fit(&mut m, DenseView::new(&x, 4, 3).unwrap()).unwrap();
+        let loaded = Nmf::<f64>::from_bytes(&m.to_bytes().unwrap()).unwrap();
+        assert_eq!(loaded, m);
+        let a = Transformer::transform(&m, DenseView::new(&x, 4, 3).unwrap()).unwrap();
+        let b = Transformer::transform(&loaded, DenseView::new(&x, 4, 3).unwrap()).unwrap();
+        assert_eq!(a, b);
+    }
+
+    #[test]
+    fn unfitted_nmf_round_trips_with_custom_init() {
+        let m = Nmf::<f64>::new(1).with_init(vec![1.0, 2.0], vec![0.5, 0.25, 1.0]);
+        assert_eq!(Nmf::<f64>::from_bytes(&m.to_bytes().unwrap()).unwrap(), m);
+    }
+}

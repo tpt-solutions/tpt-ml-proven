@@ -235,6 +235,98 @@ impl<F: Float> Transformer for TruncatedSvd<F> {
     }
 }
 
+// ---------------------------------------------------------------- model files
+
+use tpt_ml_proven_core::persist::{kind, Reader, Writer};
+
+fn invalid(reason: &'static str) -> Error {
+    Error::Format { reason }
+}
+
+impl<F: Float> TruncatedSvd<F> {
+    /// Serialises the model (settings and fitted state) to a model file.
+    pub fn to_bytes(&self) -> Result<Vec<u8>, Error> {
+        let mut w = Writer::for_float::<F>(kind::TRUNCATED_SVD);
+        w.usize(self.n_components);
+        match &self.fitted {
+            None => w.bool(false),
+            Some(f) => {
+                w.bool(true);
+                w.usize(f.cols);
+                let rows: Vec<Vec<f64>> = (0..f.components.rows())
+                    .map(|r| {
+                        (0..f.cols)
+                            .map(|c| f.components.get(r, c).to_f64())
+                            .collect()
+                    })
+                    .collect();
+                w.f64_rows(&rows);
+                w.f64s(&f.singular_values);
+                let variance: Vec<f64> = f.explained_variance.iter().map(|v| v.to_f64()).collect();
+                w.f64s(&variance);
+            }
+        }
+        Ok(w.finish())
+    }
+
+    /// Loads a model written by [`TruncatedSvd::to_bytes`], checking its shapes and that the
+    /// components are unit length and mutually orthogonal.
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, Error> {
+        let mut r = Reader::new(bytes, kind::TRUNCATED_SVD)?;
+        let n_components = r.usize()?;
+        let fitted = if r.bool()? {
+            let cols = r.usize()?;
+            let rows = r.f64_rows()?;
+            let singular_values = r.f64s()?;
+            let explained_variance = r.f64s()?;
+            if n_components == 0 || rows.len() != n_components || n_components > cols {
+                return Err(invalid("SVD component count does not match the file"));
+            }
+            if rows.iter().any(|row| row.len() != cols) {
+                return Err(invalid(
+                    "SVD component length differs from the feature count",
+                ));
+            }
+            if singular_values.len() != n_components || explained_variance.len() != n_components {
+                return Err(invalid("SVD value count differs from n_components"));
+            }
+            if singular_values.iter().any(|&s| s < 0.0)
+                || singular_values.windows(2).any(|w| w[0] < w[1])
+            {
+                return Err(invalid("SVD singular values are negative or not sorted"));
+            }
+            for (i, a) in rows.iter().enumerate() {
+                for (j, b) in rows.iter().enumerate().skip(i) {
+                    let dot: f64 = a.iter().zip(b).map(|(p, q)| p * q).sum();
+                    let want = if i == j { 1.0 } else { 0.0 };
+                    if (dot - want).abs() > 1e-6 {
+                        return Err(invalid("SVD components are not orthonormal"));
+                    }
+                }
+            }
+            let flat: Vec<F> = rows
+                .iter()
+                .flat_map(|row| row.iter().map(|v| F::from_f64(*v)))
+                .collect();
+            let components = Dense::from_vec(flat, n_components, cols)?;
+            Some(Fitted {
+                components,
+                singular_values,
+                explained_variance: explained_variance.iter().map(|v| F::from_f64(*v)).collect(),
+                cols,
+            })
+        } else {
+            None
+        };
+        r.finish()?;
+        Ok(Self {
+            n_components,
+            fitted,
+            marker: core::marker::PhantomData,
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -300,5 +392,47 @@ mod tests {
                 ..
             })
         ));
+    }
+}
+
+#[cfg(test)]
+mod persist_tests {
+    use super::*;
+    use tpt_ml_proven_core::{DenseView, Transformer, UnsupervisedEstimator};
+
+    fn data() -> Vec<f64> {
+        (0..30).map(|i| ((i * 7) % 13) as f64 - 6.0).collect()
+    }
+
+    #[test]
+    fn fitted_svd_round_trips_and_transforms_identically() {
+        let x = data();
+        let mut m = TruncatedSvd::<f64>::new(2);
+        UnsupervisedEstimator::fit(&mut m, DenseView::new(&x, 10, 3).unwrap()).unwrap();
+        let loaded = TruncatedSvd::<f64>::from_bytes(&m.to_bytes().unwrap()).unwrap();
+        assert_eq!(loaded, m);
+        let a = Transformer::transform(&m, DenseView::new(&x, 10, 3).unwrap()).unwrap();
+        let b = Transformer::transform(&loaded, DenseView::new(&x, 10, 3).unwrap()).unwrap();
+        assert_eq!(a, b);
+    }
+
+    #[test]
+    fn unfitted_svd_round_trips() {
+        let m = TruncatedSvd::<f32>::new(2);
+        assert_eq!(
+            TruncatedSvd::<f32>::from_bytes(&m.to_bytes().unwrap()).unwrap(),
+            m
+        );
+    }
+
+    #[test]
+    fn f32_svd_keeps_its_dtype_tag() {
+        let x: Vec<f32> = data().iter().map(|v| *v as f32).collect();
+        let mut m = TruncatedSvd::<f32>::new(1);
+        UnsupervisedEstimator::fit(&mut m, DenseView::new(&x, 10, 3).unwrap()).unwrap();
+        let bytes = m.to_bytes().unwrap();
+        let r = tpt_ml_proven_core::persist::Reader::new(&bytes, kind::TRUNCATED_SVD).unwrap();
+        assert_eq!(r.dtype(), tpt_ml_proven_core::persist::dtype::F32);
+        assert_eq!(TruncatedSvd::<f32>::from_bytes(&bytes).unwrap(), m);
     }
 }
