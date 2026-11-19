@@ -13,12 +13,16 @@ use pyo3::types::{PyAny, PyBytes, PyDict};
 
 use tpt_ml_proven_clustering::{Dbscan, Hdbscan};
 use tpt_ml_proven_core::error::Error;
+use tpt_ml_proven_core::persist::kind;
 use tpt_ml_proven_core::{
     ArrayView, DenseView, Predictor, SupervisedEstimator, Transformer, UnsupervisedEstimator,
 };
 use tpt_ml_proven_decomposition::{Nmf, TruncatedSvd};
 use tpt_ml_proven_ensemble::StumpForest;
-use tpt_ml_proven_linear::{ElasticNet, Lasso, LogisticRegression, MulticlassLogistic, Ridge};
+use tpt_ml_proven_linear::{
+    labelled_binary_from_bytes, labelled_binary_to_bytes, ElasticNet, Lasso, LogisticRegression,
+    MulticlassLogistic, Ridge,
+};
 
 use crate::{matrix_from, not_fitted, rows_of, to_py_err, to_vec};
 
@@ -49,8 +53,60 @@ pub struct PyDbscan {
     fitted: Option<Dbscan<f64>>,
 }
 
+impl PyDbscan {
+    fn encode(&self) -> PyResult<Vec<u8>> {
+        self.fitted
+            .as_ref()
+            .ok_or_else(not_fitted)?
+            .to_bytes()
+            .map_err(to_py_err)
+    }
+
+    fn decode(bytes: &[u8]) -> PyResult<Self> {
+        let m = Dbscan::<f64>::from_bytes(bytes).map_err(to_py_err)?;
+        Ok(Self {
+            eps: m.eps(),
+            min_samples: m.min_samples(),
+            fitted: Some(m),
+        })
+    }
+}
+
 #[pymethods]
 impl PyDbscan {
+    /// Serialises the fitted model to bytes, in the tpt-ml-proven model file format.
+    fn to_bytes<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyBytes>> {
+        Ok(PyBytes::new(py, &self.encode()?))
+    }
+
+    /// Loads a model from bytes written by `to_bytes`. The hyper-parameters come from the file.
+    #[staticmethod]
+    fn from_bytes(data: &[u8]) -> PyResult<Self> {
+        Self::decode(data)
+    }
+
+    /// Writes the fitted model to a file.
+    fn save(&self, path: &str) -> PyResult<()> {
+        std::fs::write(path, self.encode()?).map_err(|e| PyValueError::new_err(e.to_string()))
+    }
+
+    /// Loads a model from a file written by `save`.
+    #[staticmethod]
+    fn load(path: &str) -> PyResult<Self> {
+        let bytes = std::fs::read(path).map_err(|e| PyValueError::new_err(e.to_string()))?;
+        Self::decode(&bytes)
+    }
+
+    /// Pickle support: unpickling calls `from_bytes` on the saved bytes.
+    fn __reduce__<'py>(
+        slf: &Bound<'py, Self>,
+    ) -> PyResult<(Bound<'py, PyAny>, (Bound<'py, PyBytes>,))> {
+        let py = slf.py();
+        let bytes = PyBytes::new(py, &slf.borrow().encode()?);
+        let loader = slf.get_type().getattr("from_bytes")?;
+        Ok((loader, (bytes,)))
+    }
+
     /// Fits, then returns the cluster label of each row (`-1` for noise).
     fn fit_predict<'py>(
         slf: Bound<'py, Self>,
@@ -171,8 +227,60 @@ pub struct PyHdbscan {
     fitted: Option<Hdbscan<f64>>,
 }
 
+impl PyHdbscan {
+    fn encode(&self) -> PyResult<Vec<u8>> {
+        self.fitted
+            .as_ref()
+            .ok_or_else(not_fitted)?
+            .to_bytes()
+            .map_err(to_py_err)
+    }
+
+    fn decode(bytes: &[u8]) -> PyResult<Self> {
+        let m = Hdbscan::<f64>::from_bytes(bytes).map_err(to_py_err)?;
+        Ok(Self {
+            min_cluster_size: m.min_cluster_size(),
+            min_samples: m.min_samples(),
+            fitted: Some(m),
+        })
+    }
+}
+
 #[pymethods]
 impl PyHdbscan {
+    /// Serialises the fitted model to bytes, in the tpt-ml-proven model file format.
+    fn to_bytes<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyBytes>> {
+        Ok(PyBytes::new(py, &self.encode()?))
+    }
+
+    /// Loads a model from bytes written by `to_bytes`. The hyper-parameters come from the file.
+    #[staticmethod]
+    fn from_bytes(data: &[u8]) -> PyResult<Self> {
+        Self::decode(data)
+    }
+
+    /// Writes the fitted model to a file.
+    fn save(&self, path: &str) -> PyResult<()> {
+        std::fs::write(path, self.encode()?).map_err(|e| PyValueError::new_err(e.to_string()))
+    }
+
+    /// Loads a model from a file written by `save`.
+    #[staticmethod]
+    fn load(path: &str) -> PyResult<Self> {
+        let bytes = std::fs::read(path).map_err(|e| PyValueError::new_err(e.to_string()))?;
+        Self::decode(&bytes)
+    }
+
+    /// Pickle support: unpickling calls `from_bytes` on the saved bytes.
+    fn __reduce__<'py>(
+        slf: &Bound<'py, Self>,
+    ) -> PyResult<(Bound<'py, PyAny>, (Bound<'py, PyBytes>,))> {
+        let py = slf.py();
+        let bytes = PyBytes::new(py, &slf.borrow().encode()?);
+        let loader = slf.get_type().getattr("from_bytes")?;
+        Ok((loader, (bytes,)))
+    }
+
     /// Fits, then returns the cluster label of each row (`-1` for noise).
     fn fit_predict<'py>(
         slf: Bound<'py, Self>,
@@ -908,8 +1016,80 @@ pub struct PyLogisticRegression {
     fitted: Option<LogitState>,
 }
 
+impl PyLogisticRegression {
+    fn encode(&self) -> PyResult<Vec<u8>> {
+        match self.fitted.as_ref().ok_or_else(not_fitted)? {
+            LogitState::Binary { model, classes } => {
+                labelled_binary_to_bytes(model, *classes).map_err(to_py_err)
+            }
+            LogitState::Multi(model) => model.to_bytes().map_err(to_py_err),
+        }
+    }
+
+    fn decode(bytes: &[u8]) -> PyResult<Self> {
+        let tag = bytes
+            .get(12..16)
+            .map(|b| u32::from_le_bytes(b.try_into().expect("4 bytes")))
+            .ok_or_else(|| PyValueError::new_err("not a tpt-ml-proven model file"))?;
+        if tag == kind::LOGISTIC_LABELLED {
+            let (model, classes) = labelled_binary_from_bytes(bytes).map_err(to_py_err)?;
+            Ok(Self {
+                c: model.c(),
+                max_iter: model.max_iter(),
+                tol: model.tol(),
+                fitted: Some(LogitState::Binary { model, classes }),
+            })
+        } else if tag == kind::MULTICLASS_LOGISTIC {
+            let model = MulticlassLogistic::<f64>::from_bytes(bytes).map_err(to_py_err)?;
+            Ok(Self {
+                c: model.c(),
+                max_iter: model.max_iter(),
+                tol: model.tol(),
+                fitted: Some(LogitState::Multi(model)),
+            })
+        } else {
+            Err(PyValueError::new_err(
+                "the file does not hold a LogisticRegression",
+            ))
+        }
+    }
+}
+
 #[pymethods]
 impl PyLogisticRegression {
+    /// Serialises the fitted model to bytes, in the tpt-ml-proven model file format.
+    fn to_bytes<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyBytes>> {
+        Ok(PyBytes::new(py, &self.encode()?))
+    }
+
+    /// Loads a model from bytes written by `to_bytes`. The hyper-parameters come from the file.
+    #[staticmethod]
+    fn from_bytes(data: &[u8]) -> PyResult<Self> {
+        Self::decode(data)
+    }
+
+    /// Writes the fitted model to a file.
+    fn save(&self, path: &str) -> PyResult<()> {
+        std::fs::write(path, self.encode()?).map_err(|e| PyValueError::new_err(e.to_string()))
+    }
+
+    /// Loads a model from a file written by `save`.
+    #[staticmethod]
+    fn load(path: &str) -> PyResult<Self> {
+        let bytes = std::fs::read(path).map_err(|e| PyValueError::new_err(e.to_string()))?;
+        Self::decode(&bytes)
+    }
+
+    /// Pickle support: unpickling calls `from_bytes` on the saved bytes.
+    fn __reduce__<'py>(
+        slf: &Bound<'py, Self>,
+    ) -> PyResult<(Bound<'py, PyAny>, (Bound<'py, PyBytes>,))> {
+        let py = slf.py();
+        let bytes = PyBytes::new(py, &slf.borrow().encode()?);
+        let loader = slf.get_type().getattr("from_bytes")?;
+        Ok((loader, (bytes,)))
+    }
+
     /// Number of features seen in `fit`. Raises AttributeError before fit, as scikit-learn does.
     #[getter]
     fn n_features_in_(&self) -> PyResult<usize> {
