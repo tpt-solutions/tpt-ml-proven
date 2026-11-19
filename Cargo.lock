@@ -3,6 +3,19 @@
 version = 4
 
 [[package]]
+name = "tpt-ml-proven"
+version = "0.0.0"
+dependencies = [
+ "tpt-ml-proven-clustering",
+ "tpt-ml-proven-core",
+ "tpt-ml-proven-decomposition",
+ "tpt-ml-proven-ensemble",
+ "tpt-ml-proven-linear",
+ "tpt-ml-proven-preprocessing",
+ "tpt-ml-proven-trees",
+]
+
+[[package]]
 name = "tpt-ml-proven-clustering"
 version = "0.0.0"
 dependencies = [
