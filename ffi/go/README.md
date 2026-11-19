@@ -1,6 +1,8 @@
 # tpt-ml-proven (Go)
 
-Go bindings for KMeans and PCA, through the C ABI in `ffi/c` (cgo).
+Go bindings for the estimators of tpt-ml-proven, through the C ABI in `ffi/c` (cgo):
+KMeans, PCA, TruncatedSVD, NMF, DBSCAN, HDBSCAN, Ridge, Lasso, ElasticNet, logistic regression
+and StumpForest.
 Module: `github.com/tpt-solutions/tpt-ml-proven/ffi/go`. Requires Go 1.21 or later and a C
 compiler for cgo.
 
@@ -32,4 +34,7 @@ z, _ := p.Transform(x)
 - Data is `[][]float64`. Rows must be non-empty and of equal length.
 - Errors wrap the native status. `errors.Is(err, mlproven.ErrNotFitted)` checks for a call before `Fit`.
 - Estimators hold native memory. Call `Close`. A finalizer is a fallback only.
-- The Phase 8 estimators are not yet in Go. The C ABI covers all of them.
+- Regressors and classifiers take `x [][]float64` and `y []float64`. Logistic regression and
+  StumpForest take class labels as float64 values.
+- Trees, gradient boosting, forests and the preprocessing transformers are not in Go yet. The
+  C ABI exposes them.

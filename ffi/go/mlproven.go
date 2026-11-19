@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 TPT Solutions
 
-// Package mlproven provides KMeans and PCA for Go, through the C ABI in ffi/c.
+// Package mlproven provides the estimators of tpt-ml-proven for Go, through the C ABI in ffi/c.
 //
 // Data is a slice of rows; every row must have the same length. Estimators hold native
 // memory, so call Close when done (a finalizer is a fallback, not a guarantee).
@@ -98,6 +98,29 @@ func toInts(buf []C.uintptr_t) []int {
 
 func dataPtr(data []float64) *C.double {
 	return (*C.double)(unsafe.Pointer(&data[0]))
+}
+
+// checkTargets checks that y has one value per row of the matrix.
+func checkTargets(y []float64, rows int) error {
+	if len(y) != rows {
+		return fmt.Errorf("mlproven: %d targets for %d rows", len(y), rows)
+	}
+	return nil
+}
+
+// fetchLabels runs a native call that writes one int64 label per row, and converts them to int.
+func fetchLabels(rows int, fill func(out *C.int64_t, n C.uintptr_t) C.enum_tpml_TpmlStatus) ([]int, error) {
+	buf := make([]C.int64_t, rows)
+	if err := callC(func() C.enum_tpml_TpmlStatus {
+		return fill(&buf[0], C.uintptr_t(rows))
+	}); err != nil {
+		return nil, err
+	}
+	out := make([]int, rows)
+	for i, v := range buf {
+		out[i] = int(v)
+	}
+	return out, nil
 }
 
 // ---------------------------------------------------------------- KMeans
