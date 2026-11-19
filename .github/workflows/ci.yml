@@ -216,7 +216,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: ffi/c
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6
         with:
           go-version: "1.21"
       - run: cargo build --release --manifest-path ../c/Cargo.toml
