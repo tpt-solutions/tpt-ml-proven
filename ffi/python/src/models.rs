@@ -5,9 +5,10 @@
 //! into `f64` before fitting, so a `float32` array gives the same result as its `float64`
 //! copy. The copy is made while the GIL is held, and fitting runs without it.
 
+use crate::repr_of;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
-use pyo3::types::{PyAny, PyBytes};
+use pyo3::types::{PyAny, PyBytes, PyDict};
 
 use tpt_ml_proven_clustering::{Dbscan, Hdbscan};
 use tpt_ml_proven_core::error::Error;
@@ -49,6 +50,43 @@ pub struct PyDbscan {
 
 #[pymethods]
 impl PyDbscan {
+    /// The constructor parameters, by name.
+    fn get_params<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
+        let d = PyDict::new(py);
+        d.set_item("eps", self.eps)?;
+        d.set_item("min_samples", self.min_samples)?;
+        Ok(d)
+    }
+
+    /// Sets constructor parameters by name and returns the estimator. A fitted model keeps its
+    /// fitted state until it is refitted.
+    #[pyo3(signature = (**params))]
+    fn set_params<'py>(
+        slf: Bound<'py, Self>,
+        params: Option<&Bound<'py, PyDict>>,
+    ) -> PyResult<Bound<'py, Self>> {
+        if let Some(params) = params {
+            let mut this = slf.borrow_mut();
+            for (key, value) in params.iter() {
+                let key: String = key.extract()?;
+                match key.as_str() {
+                    "eps" => this.eps = value.extract()?,
+                    "min_samples" => this.min_samples = value.extract()?,
+                    other => {
+                        return Err(PyValueError::new_err(format!(
+                            "invalid parameter {other:?} for estimator DBSCAN"
+                        )))
+                    }
+                }
+            }
+        }
+        Ok(slf)
+    }
+
+    fn __repr__(&self, py: Python<'_>) -> PyResult<String> {
+        repr_of("DBSCAN", &self.get_params(py)?)
+    }
+
     #[new]
     fn new(eps: f64, min_samples: usize) -> Self {
         Self {
@@ -105,6 +143,43 @@ pub struct PyHdbscan {
 
 #[pymethods]
 impl PyHdbscan {
+    /// The constructor parameters, by name.
+    fn get_params<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
+        let d = PyDict::new(py);
+        d.set_item("min_cluster_size", self.min_cluster_size)?;
+        d.set_item("min_samples", self.min_samples)?;
+        Ok(d)
+    }
+
+    /// Sets constructor parameters by name and returns the estimator. A fitted model keeps its
+    /// fitted state until it is refitted.
+    #[pyo3(signature = (**params))]
+    fn set_params<'py>(
+        slf: Bound<'py, Self>,
+        params: Option<&Bound<'py, PyDict>>,
+    ) -> PyResult<Bound<'py, Self>> {
+        if let Some(params) = params {
+            let mut this = slf.borrow_mut();
+            for (key, value) in params.iter() {
+                let key: String = key.extract()?;
+                match key.as_str() {
+                    "min_cluster_size" => this.min_cluster_size = value.extract()?,
+                    "min_samples" => this.min_samples = value.extract()?,
+                    other => {
+                        return Err(PyValueError::new_err(format!(
+                            "invalid parameter {other:?} for estimator HDBSCAN"
+                        )))
+                    }
+                }
+            }
+        }
+        Ok(slf)
+    }
+
+    fn __repr__(&self, py: Python<'_>) -> PyResult<String> {
+        repr_of("HDBSCAN", &self.get_params(py)?)
+    }
+
     #[new]
     #[pyo3(signature = (min_cluster_size=5, *, min_samples=None))]
     fn new(min_cluster_size: usize, min_samples: Option<usize>) -> Self {
@@ -175,6 +250,41 @@ impl PyTruncatedSvd {
 
 #[pymethods]
 impl PyTruncatedSvd {
+    /// The constructor parameters, by name.
+    fn get_params<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
+        let d = PyDict::new(py);
+        d.set_item("n_components", self.n_components)?;
+        Ok(d)
+    }
+
+    /// Sets constructor parameters by name and returns the estimator. A fitted model keeps its
+    /// fitted state until it is refitted.
+    #[pyo3(signature = (**params))]
+    fn set_params<'py>(
+        slf: Bound<'py, Self>,
+        params: Option<&Bound<'py, PyDict>>,
+    ) -> PyResult<Bound<'py, Self>> {
+        if let Some(params) = params {
+            let mut this = slf.borrow_mut();
+            for (key, value) in params.iter() {
+                let key: String = key.extract()?;
+                match key.as_str() {
+                    "n_components" => this.n_components = value.extract()?,
+                    other => {
+                        return Err(PyValueError::new_err(format!(
+                            "invalid parameter {other:?} for estimator TruncatedSVD"
+                        )))
+                    }
+                }
+            }
+        }
+        Ok(slf)
+    }
+
+    fn __repr__(&self, py: Python<'_>) -> PyResult<String> {
+        repr_of("TruncatedSVD", &self.get_params(py)?)
+    }
+
     /// Serialises the fitted model to bytes, in the tpt-ml-proven model file format.
     fn to_bytes<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyBytes>> {
         Ok(PyBytes::new(py, &self.encode()?))
@@ -207,7 +317,6 @@ impl PyTruncatedSvd {
         let loader = slf.get_type().getattr("from_bytes")?;
         Ok((loader, (bytes,)))
     }
-
 
     #[new]
     fn new(n_components: usize) -> Self {
@@ -294,6 +403,47 @@ impl PyNmf {
 
 #[pymethods]
 impl PyNmf {
+    /// The constructor parameters, by name.
+    fn get_params<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
+        let d = PyDict::new(py);
+        d.set_item("n_components", self.n_components)?;
+        d.set_item("max_iter", self.max_iter)?;
+        d.set_item("tol", self.tol)?;
+        d.set_item("seed", self.seed)?;
+        Ok(d)
+    }
+
+    /// Sets constructor parameters by name and returns the estimator. A fitted model keeps its
+    /// fitted state until it is refitted.
+    #[pyo3(signature = (**params))]
+    fn set_params<'py>(
+        slf: Bound<'py, Self>,
+        params: Option<&Bound<'py, PyDict>>,
+    ) -> PyResult<Bound<'py, Self>> {
+        if let Some(params) = params {
+            let mut this = slf.borrow_mut();
+            for (key, value) in params.iter() {
+                let key: String = key.extract()?;
+                match key.as_str() {
+                    "n_components" => this.n_components = value.extract()?,
+                    "max_iter" => this.max_iter = value.extract()?,
+                    "tol" => this.tol = value.extract()?,
+                    "seed" => this.seed = value.extract()?,
+                    other => {
+                        return Err(PyValueError::new_err(format!(
+                            "invalid parameter {other:?} for estimator NMF"
+                        )))
+                    }
+                }
+            }
+        }
+        Ok(slf)
+    }
+
+    fn __repr__(&self, py: Python<'_>) -> PyResult<String> {
+        repr_of("NMF", &self.get_params(py)?)
+    }
+
     /// Serialises the fitted model to bytes, in the tpt-ml-proven model file format.
     fn to_bytes<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyBytes>> {
         Ok(PyBytes::new(py, &self.encode()?))
@@ -326,7 +476,6 @@ impl PyNmf {
         let loader = slf.get_type().getattr("from_bytes")?;
         Ok((loader, (bytes,)))
     }
-
 
     #[new]
     #[pyo3(signature = (n_components, *, max_iter=200, tol=1e-4, seed=0))]
@@ -430,6 +579,43 @@ macro_rules! regression_class {
         #[pymethods]
         impl $ident {
             $ctor
+
+            /// The constructor parameters, by name.
+            fn get_params<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
+                let d = PyDict::new(py);
+                $( d.set_item(stringify!($field), self.$field)?; )*
+                Ok(d)
+            }
+
+            /// Sets constructor parameters by name and returns the estimator. A fitted model keeps
+            /// its fitted state until it is refitted.
+            #[pyo3(signature = (**params))]
+            fn set_params<'py>(
+                slf: Bound<'py, Self>,
+                params: Option<&Bound<'py, PyDict>>,
+            ) -> PyResult<Bound<'py, Self>> {
+                if let Some(params) = params {
+                    let mut this = slf.borrow_mut();
+                    for (key, value) in params.iter() {
+                        let key: String = key.extract()?;
+                        $(
+                            if key == stringify!($field) {
+                                this.$field = value.extract()?;
+                                continue;
+                            }
+                        )*
+                        return Err(PyValueError::new_err(format!(
+                            "invalid parameter {key:?} for estimator {}",
+                            $py_name
+                        )));
+                    }
+                }
+                Ok(slf)
+            }
+
+            fn __repr__(&self, py: Python<'_>) -> PyResult<String> {
+                repr_of($py_name, &self.get_params(py)?)
+            }
 
             /// Coefficient of determination R² of the predictions for `x` against `y`.
             fn score(&self, py: Python<'_>, x: &Bound<'_, PyAny>, y: Vec<f64>) -> PyResult<f64> {
@@ -585,6 +771,45 @@ pub struct PyLogisticRegression {
 
 #[pymethods]
 impl PyLogisticRegression {
+    /// The constructor parameters, by name.
+    fn get_params<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
+        let d = PyDict::new(py);
+        d.set_item("C", self.c)?;
+        d.set_item("max_iter", self.max_iter)?;
+        d.set_item("tol", self.tol)?;
+        Ok(d)
+    }
+
+    /// Sets constructor parameters by name and returns the estimator. A fitted model keeps its
+    /// fitted state until it is refitted.
+    #[pyo3(signature = (**params))]
+    fn set_params<'py>(
+        slf: Bound<'py, Self>,
+        params: Option<&Bound<'py, PyDict>>,
+    ) -> PyResult<Bound<'py, Self>> {
+        if let Some(params) = params {
+            let mut this = slf.borrow_mut();
+            for (key, value) in params.iter() {
+                let key: String = key.extract()?;
+                match key.as_str() {
+                    "C" => this.c = value.extract()?,
+                    "max_iter" => this.max_iter = value.extract()?,
+                    "tol" => this.tol = value.extract()?,
+                    other => {
+                        return Err(PyValueError::new_err(format!(
+                            "invalid parameter {other:?} for estimator LogisticRegression"
+                        )))
+                    }
+                }
+            }
+        }
+        Ok(slf)
+    }
+
+    fn __repr__(&self, py: Python<'_>) -> PyResult<String> {
+        repr_of("LogisticRegression", &self.get_params(py)?)
+    }
+
     /// Fraction of rows of `x` whose predicted label equals the label in `y`.
     fn score(&self, py: Python<'_>, x: &Bound<'_, PyAny>, y: Vec<f64>) -> PyResult<f64> {
         let pred = self.predict(py, x)?;
@@ -726,6 +951,43 @@ impl PyStumpForest {
 
 #[pymethods]
 impl PyStumpForest {
+    /// The constructor parameters, by name.
+    fn get_params<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
+        let d = PyDict::new(py);
+        d.set_item("n_estimators", self.n_estimators)?;
+        d.set_item("seed", self.seed)?;
+        Ok(d)
+    }
+
+    /// Sets constructor parameters by name and returns the estimator. A fitted model keeps its
+    /// fitted state until it is refitted.
+    #[pyo3(signature = (**params))]
+    fn set_params<'py>(
+        slf: Bound<'py, Self>,
+        params: Option<&Bound<'py, PyDict>>,
+    ) -> PyResult<Bound<'py, Self>> {
+        if let Some(params) = params {
+            let mut this = slf.borrow_mut();
+            for (key, value) in params.iter() {
+                let key: String = key.extract()?;
+                match key.as_str() {
+                    "n_estimators" => this.n_estimators = value.extract()?,
+                    "seed" => this.seed = value.extract()?,
+                    other => {
+                        return Err(PyValueError::new_err(format!(
+                            "invalid parameter {other:?} for estimator StumpForest"
+                        )))
+                    }
+                }
+            }
+        }
+        Ok(slf)
+    }
+
+    fn __repr__(&self, py: Python<'_>) -> PyResult<String> {
+        repr_of("StumpForest", &self.get_params(py)?)
+    }
+
     /// Fraction of rows of `x` whose predicted label equals the label in `y`.
     fn score(&self, py: Python<'_>, x: &Bound<'_, PyAny>, y: Vec<f64>) -> PyResult<f64> {
         let pred = self.predict(py, x)?;
@@ -764,7 +1026,6 @@ impl PyStumpForest {
         let loader = slf.get_type().getattr("from_bytes")?;
         Ok((loader, (bytes,)))
     }
-
 
     #[new]
     #[pyo3(signature = (n_estimators=100, *, seed=0))]

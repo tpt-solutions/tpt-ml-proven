@@ -42,7 +42,38 @@ pub(crate) fn peek_dtype(bytes: &[u8]) -> PyResult<u32> {
     if version < 2 {
         return Ok(2);
     }
-    Ok(u32::from_le_bytes(bytes[16..20].try_into().expect("4 bytes")))
+    Ok(u32::from_le_bytes(
+        bytes[16..20].try_into().expect("4 bytes"),
+    ))
+}
+
+/// The `init` string for a strategy, and the strategy for a string.
+fn init_name(init: Init) -> &'static str {
+    match init {
+        Init::KMeansPlusPlus => "k-means++",
+        Init::Random => "random",
+    }
+}
+
+fn parse_init(text: &str) -> PyResult<Init> {
+    match text {
+        "k-means++" => Ok(Init::KMeansPlusPlus),
+        "random" => Ok(Init::Random),
+        other => Err(PyValueError::new_err(format!(
+            "init must be 'k-means++' or 'random', not {other:?}"
+        ))),
+    }
+}
+
+/// `Name(key=repr, ...)`, printed as scikit-learn prints an estimator.
+pub(crate) fn repr_of(name: &str, params: &Bound<'_, PyDict>) -> PyResult<String> {
+    let mut parts = Vec::new();
+    for (key, value) in params.iter() {
+        let key: String = key.extract()?;
+        let shown: String = value.repr()?.extract()?;
+        parts.push(format!("{key}={shown}"));
+    }
+    Ok(format!("{name}({})", parts.join(", ")))
 }
 
 fn to_py_err(e: Error) -> PyErr {
@@ -298,6 +329,51 @@ impl PyKMeans {
 
 #[pymethods]
 impl PyKMeans {
+    /// The constructor parameters, by name.
+    fn get_params<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
+        let d = PyDict::new(py);
+        d.set_item("n_clusters", self.params.n_clusters)?;
+        d.set_item("max_iter", self.params.max_iter)?;
+        d.set_item("tol", self.params.tol)?;
+        d.set_item("init", init_name(self.params.init))?;
+        d.set_item("seed", self.params.seed)?;
+        d.set_item("threads", self.params.threads)?;
+        Ok(d)
+    }
+
+    /// Sets constructor parameters by name and returns the estimator. A fitted model keeps its
+    /// fitted state until it is refitted.
+    #[pyo3(signature = (**params))]
+    fn set_params<'py>(
+        slf: Bound<'py, Self>,
+        params: Option<&Bound<'py, PyDict>>,
+    ) -> PyResult<Bound<'py, Self>> {
+        if let Some(params) = params {
+            let mut this = slf.borrow_mut();
+            for (key, value) in params.iter() {
+                let key: String = key.extract()?;
+                match key.as_str() {
+                    "n_clusters" => this.params.n_clusters = value.extract()?,
+                    "max_iter" => this.params.max_iter = value.extract()?,
+                    "tol" => this.params.tol = value.extract()?,
+                    "init" => this.params.init = parse_init(&value.extract::<String>()?)?,
+                    "seed" => this.params.seed = value.extract()?,
+                    "threads" => this.params.threads = value.extract()?,
+                    other => {
+                        return Err(PyValueError::new_err(format!(
+                            "invalid parameter {other:?} for estimator KMeans"
+                        )))
+                    }
+                }
+            }
+        }
+        Ok(slf)
+    }
+
+    fn __repr__(&self, py: Python<'_>) -> PyResult<String> {
+        repr_of("KMeans", &self.get_params(py)?)
+    }
+
     /// Fits, then returns the cluster of each row. Equivalent to `fit(X).predict(X)`.
     fn fit_predict(&mut self, py: Python<'_>, x: &Bound<'_, PyAny>) -> PyResult<Vec<usize>> {
         self.fit_impl(py, x)?;
@@ -336,7 +412,6 @@ impl PyKMeans {
         let loader = slf.get_type().getattr("from_bytes")?;
         Ok((loader, (bytes,)))
     }
-
 
     #[new]
     #[pyo3(signature = (n_clusters, *, max_iter=300, tol=1e-4, init="k-means++", seed=0, threads=1))]
@@ -545,6 +620,41 @@ impl PyPca {
 
 #[pymethods]
 impl PyPca {
+    /// The constructor parameters, by name.
+    fn get_params<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
+        let d = PyDict::new(py);
+        d.set_item("n_components", self.n_components)?;
+        Ok(d)
+    }
+
+    /// Sets constructor parameters by name and returns the estimator. A fitted model keeps its
+    /// fitted state until it is refitted.
+    #[pyo3(signature = (**params))]
+    fn set_params<'py>(
+        slf: Bound<'py, Self>,
+        params: Option<&Bound<'py, PyDict>>,
+    ) -> PyResult<Bound<'py, Self>> {
+        if let Some(params) = params {
+            let mut this = slf.borrow_mut();
+            for (key, value) in params.iter() {
+                let key: String = key.extract()?;
+                match key.as_str() {
+                    "n_components" => this.n_components = value.extract()?,
+                    other => {
+                        return Err(PyValueError::new_err(format!(
+                            "invalid parameter {other:?} for estimator PCA"
+                        )))
+                    }
+                }
+            }
+        }
+        Ok(slf)
+    }
+
+    fn __repr__(&self, py: Python<'_>) -> PyResult<String> {
+        repr_of("PCA", &self.get_params(py)?)
+    }
+
     /// Serialises the fitted model to bytes, in the tpt-ml-proven model file format.
     fn to_bytes<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyBytes>> {
         Ok(PyBytes::new(py, &self.encode()?))
@@ -577,7 +687,6 @@ impl PyPca {
         let loader = slf.get_type().getattr("from_bytes")?;
         Ok((loader, (bytes,)))
     }
-
 
     #[new]
     fn new(n_components: usize) -> Self {
