@@ -2,7 +2,7 @@
 # workspace, like the other bindings.
 [package]
 name = "tpt-ml-proven-c"
-description = "C ABI for tpt-ml-proven (KMeans, PCA), used by the Go binding."
+description = "C ABI for tpt-ml-proven, used by the Go binding and other C-compatible callers."
 version = "0.0.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"

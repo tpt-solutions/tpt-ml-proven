@@ -160,7 +160,9 @@ jobs:
         with:
           workspaces: ffi/c
       - run: cargo test
-      - run: cargo install cbindgen --locked
+      # Pinned: cbindgen reorders the enums in the header between releases (0.29 emits them in a
+      # different order than the committed 0.27 output), which would fail the check below.
+      - run: cargo install cbindgen --version 0.27.0 --locked
       - run: cbindgen --config cbindgen.toml --crate tpt-ml-proven-c --output include/tpt_ml_proven.h
       - run: git diff --exit-code -- include/tpt_ml_proven.h
       # The C example compiles against the header and runs against the release library.
@@ -169,6 +171,15 @@ jobs:
       - run: ./target/kmeans_example
         env:
           LD_LIBRARY_PATH: target/release
+      # Install to a scratch prefix, then build the example through pkg-config alone.
+      - run: sh install.sh "$RUNNER_TEMP/prefix"
+      - run: |
+          cc -std=c99 -Wall -Wextra -Werror $(pkg-config --cflags tpt-ml-proven) examples/main.c \
+            $(pkg-config --libs tpt-ml-proven) -o target/kmeans_pkgconfig
+          ./target/kmeans_pkgconfig
+        env:
+          PKG_CONFIG_PATH: ${{ runner.temp }}/prefix/lib/pkgconfig
+          LD_LIBRARY_PATH: ${{ runner.temp }}/prefix/lib
 
   # KMeans benchmark against scikit-learn, as a report only: it never fails the build, and the
   # numbers depend on the runner. Results go to the job summary and an uploaded artifact.

@@ -1,7 +1,6 @@
-# pkg-config template for the C library. Fill in the three @...@ values at install time:
-#   @PREFIX@   the install prefix, for example /usr/local
-#   @VERSION@  the library version (tpml_version() reports it)
-# Installed as tpt-ml-proven.pc, then `pkg-config --cflags --libs tpt-ml-proven` works.
+# pkg-config template for the C library. install.sh fills in the prefix and the library version
+# (tpml_version() reports the version) and writes the result as tpt-ml-proven.pc.
+# Afterwards `pkg-config --cflags --libs tpt-ml-proven` works.
 
 prefix=@PREFIX@
 libdir=${prefix}/lib
