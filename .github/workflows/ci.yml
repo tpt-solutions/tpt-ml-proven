@@ -111,7 +111,7 @@ jobs:
         working-directory: ffi/python
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
       - uses: dtolnay/rust-toolchain@stable
@@ -139,7 +139,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: ffi/wasm
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: "22"
       - run: cargo install wasm-pack --locked
@@ -170,7 +170,7 @@ jobs:
     continue-on-error: true
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
       - uses: dtolnay/rust-toolchain@stable
@@ -199,7 +199,7 @@ jobs:
             cat target/bench/tpt-ml-proven.txt
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: kmeans-benchmark
           path: target/bench/*.json
@@ -216,7 +216,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: ffi/c
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6
         with:
           go-version: "1.21"
       - run: cargo build --release --manifest-path ../c/Cargo.toml
