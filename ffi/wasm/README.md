@@ -1,6 +1,6 @@
 # tpt-ml-proven (WebAssembly)
 
-WebAssembly bindings for KMeans and PCA, built with wasm-bindgen.
+WebAssembly bindings for KMeans, PCA and the Phase 8 estimators, built with wasm-bindgen.
 
 ```sh
 wasm-pack build --target nodejs --release --no-opt
@@ -23,3 +23,24 @@ const z = p.transform(data, 2);        // flat rows x n_components
 - `fitF32` / `Float32Array` keeps the model in single precision.
 - Errors are thrown as JavaScript `Error` objects.
 - Seeds are `u64`, so they are passed as BigInts.
+
+## Phase 8 estimators
+
+`DbscanModel`, `HdbscanModel`, `TruncatedSvdModel`, `NmfModel`, `RidgeModel`, `LassoModel`,
+`ElasticNetModel`, `LogisticRegressionModel` (binary or multinomial) and `StumpForestModel`.
+They run in `f64`. Targets are `Float64Array`s, labels come back as `Int32Array`
+(`-1` for noise), and matrices are flat and row-major.
+
+```js
+const { DbscanModel, LogisticRegressionModel } = require("./pkg/tpt_ml_proven_wasm.js");
+
+const db = new DbscanModel(0.5, 5);
+db.fit(data, 2);
+const labels = db.labels;                       // Int32Array, -1 for noise
+
+const lr = new LogisticRegressionModel(1.0);
+lr.fit(data, 2, Float64Array.from([0, 0, 0, 1, 1, 1]));
+const proba = lr.predictProba(data, 2);         // flat, one row per sample
+```
+
+The Phase 8 estimators are not yet exposed through the C ABI.

@@ -19,3 +19,5 @@ wasm-bindgen = "0.2"
 tpt-ml-proven-core = { path = "../../crates/tpt-ml-proven-core" }
 tpt-ml-proven-clustering = { path = "../../crates/tpt-ml-proven-clustering" }
 tpt-ml-proven-decomposition = { path = "../../crates/tpt-ml-proven-decomposition" }
+tpt-ml-proven-linear = { path = "../../crates/tpt-ml-proven-linear" }
+tpt-ml-proven-ensemble = { path = "../../crates/tpt-ml-proven-ensemble" }

@@ -84,3 +84,87 @@ test("PCA f32 agrees with f64 to single precision", () => {
 test("PCA before fit throws", () => {
   assert.throws(() => new PcaModel(1).transform(new Float64Array(4), 2), /not fitted/);
 });
+
+// ---------------------------------------------------------------- Phase 8 estimators
+
+const {
+  DbscanModel,
+  HdbscanModel,
+  TruncatedSvdModel,
+  NmfModel,
+  RidgeModel,
+  LassoModel,
+  ElasticNetModel,
+  LogisticRegressionModel,
+  StumpForestModel,
+} = require("../pkg/tpt_ml_proven_wasm.js");
+
+test("DBSCAN and HDBSCAN find the blobs and mark noise", () => {
+  const data = Float64Array.from([...BLOBS, 50, -50]);
+  const db = new DbscanModel(1.0, 3);
+  db.fit(data, 2);
+  const labels = Array.from(db.labels);
+  assert.equal(labels[labels.length - 1], -1);
+  assert.equal(labels[0], labels[1]);
+  assert.equal(labels[3], labels[4]);
+  assert.notEqual(labels[0], labels[3]);
+
+  const hd = new HdbscanModel(3, undefined);
+  hd.fit(Float64Array.from(BLOBS), 2);
+  const h = Array.from(hd.labels);
+  assert.notEqual(h[0], h[3]);
+  assert.equal(h[0], h[1]);
+});
+
+test("TruncatedSVD singular values match the top of the spectrum", () => {
+  const svd = new TruncatedSvdModel(2);
+  svd.fit(Float64Array.from(BLOBS.map((v) => v + 1)), 2);
+  const sv = Array.from(svd.singularValues);
+  assert.equal(sv.length, 2);
+  assert.ok(sv[0] >= sv[1] && sv[1] >= 0);
+});
+
+test("NMF factors are non-negative", () => {
+  const data = Float64Array.from([1, 2, 3, 4, 2, 1, 0, 3, 5, 1, 2, 2]);
+  const nmf = new NmfModel(2, 300, undefined, 1n);
+  nmf.fit(data, 3);
+  assert.ok(Array.from(nmf.components).every((v) => v >= 0));
+  assert.equal(nmf.transform(data, 3).length, 8);
+});
+
+test("Ridge recovers a linear relation; Lasso zeroes an unused feature", () => {
+  const x = Float64Array.from([0, 1, 1, 0, 2, 1, 1, 2, 3, 1, 0, 3]);
+  const y = Float64Array.from(Array.from({ length: 6 }, (_, i) => 2 * x[i * 2] - x[i * 2 + 1]));
+  const r = new RidgeModel(1e-9);
+  r.fit(x, 2, y);
+  assert.ok(Math.abs(r.coef[0] - 2) < 1e-4 && Math.abs(r.coef[1] + 1) < 1e-4);
+  const l = new LassoModel(0.5, 10000, 1e-10);
+  l.fit(x, 2, Float64Array.from(Array.from({ length: 6 }, (_, i) => 2 * x[i * 2])));
+  assert.ok(Math.abs(l.coef[1]) < 1e-12);
+  const e = new ElasticNetModel(0.1, 0.5, 10000, 1e-10);
+  e.fit(x, 2, y);
+  assert.equal(e.coef.length, 2);
+});
+
+test("logistic regression keeps labels and returns probability rows", () => {
+  const lr = new LogisticRegressionModel(10.0);
+  lr.fit(Float64Array.from(BLOBS), 2, Float64Array.from([7, 7, 7, 3, 3, 3]));
+  assert.deepEqual(Array.from(lr.classes), [3, 7]);
+  assert.deepEqual(Array.from(lr.predict(Float64Array.from(BLOBS), 2)), [7, 7, 7, 3, 3, 3]);
+  const p = Array.from(lr.predictProba(Float64Array.from(BLOBS), 2));
+  assert.equal(p.length, 12);
+  assert.ok(Math.abs(p[0] + p[1] - 1) < 1e-12);
+});
+
+test("stump forest fits a threshold rule", () => {
+  const x = Float64Array.from(Array.from({ length: 40 }, (_, i) => i));
+  const y = Float64Array.from(Array.from({ length: 40 }, (_, i) => (i < 20 ? 0 : 1)));
+  const sf = new StumpForestModel(25, 7n);
+  sf.fit(x, 1, y);
+  assert.deepEqual(Array.from(sf.predict(x, 1)), Array.from(y));
+});
+
+test("unfitted access and shape errors throw", () => {
+  assert.throws(() => new RidgeModel(0.1).predict(Float64Array.from([1, 2]), 2));
+  assert.throws(() => new RidgeModel(0.1).fit(Float64Array.from([1, 2, 3]), 2, Float64Array.from([1])));
+});

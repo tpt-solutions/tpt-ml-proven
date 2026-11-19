@@ -12,8 +12,17 @@ use wasm_bindgen::prelude::*;
 
 use tpt_ml_proven_clustering::{Init, KMeans};
 use tpt_ml_proven_core::error::Error;
-use tpt_ml_proven_core::{ArrayView, Dense, DenseView, Float, Predictor, Transformer, UnsupervisedEstimator};
+use tpt_ml_proven_core::{
+    ArrayView, Dense, DenseView, Float, Predictor, Transformer, UnsupervisedEstimator,
+};
 use tpt_ml_proven_decomposition::Pca;
+
+mod models;
+
+pub use models::{
+    DbscanModel, ElasticNetModel, HdbscanModel, LassoModel, LogisticRegressionModel, NmfModel,
+    RidgeModel, StumpForestModel, TruncatedSvdModel,
+};
 
 fn js_err(e: Error) -> JsError {
     JsError::new(&e.to_string())
@@ -96,8 +105,11 @@ impl KMeansModel {
     pub fn fit(&mut self, data: &[f64], cols: usize) -> Result<(), JsError> {
         let rows = check_shape(data.len(), cols)?;
         let mut km = self.build::<f64>();
-        UnsupervisedEstimator::fit(&mut km, DenseView::new(data, rows, cols).map_err(|e| js_err(e.into()))?)
-            .map_err(js_err)?;
+        UnsupervisedEstimator::fit(
+            &mut km,
+            DenseView::new(data, rows, cols).map_err(|e| js_err(e.into()))?,
+        )
+        .map_err(js_err)?;
         self.fitted = Some(KState::F64(km));
         Ok(())
     }
@@ -107,8 +119,11 @@ impl KMeansModel {
     pub fn fit_f32(&mut self, data: &[f32], cols: usize) -> Result<(), JsError> {
         let rows = check_shape(data.len(), cols)?;
         let mut km = self.build::<f32>();
-        UnsupervisedEstimator::fit(&mut km, DenseView::new(data, rows, cols).map_err(|e| js_err(e.into()))?)
-            .map_err(js_err)?;
+        UnsupervisedEstimator::fit(
+            &mut km,
+            DenseView::new(data, rows, cols).map_err(|e| js_err(e.into()))?,
+        )
+        .map_err(js_err)?;
         self.fitted = Some(KState::F32(km));
         Ok(())
     }
@@ -225,8 +240,11 @@ impl PcaModel {
     pub fn fit(&mut self, data: &[f64], cols: usize) -> Result<(), JsError> {
         let rows = check_shape(data.len(), cols)?;
         let mut p = Pca::<f64>::new(self.n_components);
-        UnsupervisedEstimator::fit(&mut p, DenseView::new(data, rows, cols).map_err(|e| js_err(e.into()))?)
-            .map_err(js_err)?;
+        UnsupervisedEstimator::fit(
+            &mut p,
+            DenseView::new(data, rows, cols).map_err(|e| js_err(e.into()))?,
+        )
+        .map_err(js_err)?;
         self.fitted = Some(PState::F64(p));
         Ok(())
     }
@@ -236,8 +254,11 @@ impl PcaModel {
     pub fn fit_f32(&mut self, data: &[f32], cols: usize) -> Result<(), JsError> {
         let rows = check_shape(data.len(), cols)?;
         let mut p = Pca::<f32>::new(self.n_components);
-        UnsupervisedEstimator::fit(&mut p, DenseView::new(data, rows, cols).map_err(|e| js_err(e.into()))?)
-            .map_err(js_err)?;
+        UnsupervisedEstimator::fit(
+            &mut p,
+            DenseView::new(data, rows, cols).map_err(|e| js_err(e.into()))?,
+        )
+        .map_err(js_err)?;
         self.fitted = Some(PState::F32(p));
         Ok(())
     }
@@ -262,18 +283,26 @@ impl PcaModel {
 
     /// Maps component scores back to feature space, flat `rows x n_features`.
     #[wasm_bindgen(js_name = inverseTransform)]
-    pub fn inverse_transform(&self, scores: &[f64], n_components: usize) -> Result<Vec<f64>, JsError> {
+    pub fn inverse_transform(
+        &self,
+        scores: &[f64],
+        n_components: usize,
+    ) -> Result<Vec<f64>, JsError> {
         let rows = check_shape(scores.len(), n_components)?;
         Ok(match self.fitted.as_ref().ok_or_else(not_fitted)? {
             PState::F64(p) => flatten(
-                &p.inverse_transform(&DenseView::new(scores, rows, n_components).map_err(|e| js_err(e.into()))?)
-                    .map_err(js_err)?,
+                &p.inverse_transform(
+                    &DenseView::new(scores, rows, n_components).map_err(|e| js_err(e.into()))?,
+                )
+                .map_err(js_err)?,
             ),
             PState::F32(p) => {
                 let d = to_f32(scores);
                 flatten(
-                    &p.inverse_transform(&DenseView::new(&d, rows, n_components).map_err(|e| js_err(e.into()))?)
-                        .map_err(js_err)?,
+                    &p.inverse_transform(
+                        &DenseView::new(&d, rows, n_components).map_err(|e| js_err(e.into()))?,
+                    )
+                    .map_err(js_err)?,
                 )
             }
         })
@@ -293,7 +322,12 @@ impl PcaModel {
     pub fn mean(&self) -> Result<Vec<f64>, JsError> {
         match self.fitted.as_ref().ok_or_else(not_fitted)? {
             PState::F64(p) => Ok(p.mean().ok_or_else(not_fitted)?.to_vec()),
-            PState::F32(p) => Ok(p.mean().ok_or_else(not_fitted)?.iter().map(|v| v.to_f64()).collect()),
+            PState::F32(p) => Ok(p
+                .mean()
+                .ok_or_else(not_fitted)?
+                .iter()
+                .map(|v| v.to_f64())
+                .collect()),
         }
     }
 
@@ -315,7 +349,10 @@ impl PcaModel {
     #[wasm_bindgen(getter, js_name = explainedVarianceRatio)]
     pub fn explained_variance_ratio(&self) -> Result<Vec<f64>, JsError> {
         match self.fitted.as_ref().ok_or_else(not_fitted)? {
-            PState::F64(p) => Ok(p.explained_variance_ratio().ok_or_else(not_fitted)?.to_vec()),
+            PState::F64(p) => Ok(p
+                .explained_variance_ratio()
+                .ok_or_else(not_fitted)?
+                .to_vec()),
             PState::F32(p) => Ok(p
                 .explained_variance_ratio()
                 .ok_or_else(not_fitted)?
