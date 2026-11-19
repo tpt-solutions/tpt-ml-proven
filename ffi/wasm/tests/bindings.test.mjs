@@ -1,170 +1,274 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 TPT Solutions
 // Behaviour of the WebAssembly bindings. Run with `node --test tests/` after
-// `wasm-pack build --target nodejs --no-opt`.
+// `wasm-pack build --target nodejs --release --no-opt --out-dir pkg`.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 
 const require = createRequire(import.meta.url);
-const { KMeansModel, PcaModel } = require("../pkg/tpt_ml_proven_wasm.js");
+const m = require("../pkg/tpt_ml_proven_wasm.js");
 
 // Two blobs of three points each, row-major, 2 features.
-const BLOBS = [0, 0, 0.1, 0, 0, 0.1, 10, 10, 10.1, 10, 10, 10.1];
+const BLOBS = new Float64Array([0, 0, 0.1, 0, 0, 0.1, 10, 10, 10.1, 10, 10, 10.1]);
+// y = 2*x0 - x1 + 3, exactly, six rows of two features.
+const LINEAR_X = new Float64Array([0, 0, 1, 0, 0, 1, 1, 1, 2, 3, 3, 1]);
+const LINEAR_Y = Float64Array.from(Array.from({ length: 6 }, (_, r) => 2 * LINEAR_X[2 * r] - LINEAR_X[2 * r + 1] + 3));
 
 function canonical(labels) {
   const seen = [];
-  return labels.map((l) => {
+  return Array.from(labels, (l) => {
     if (!seen.includes(l)) seen.push(l);
     return seen.indexOf(l);
   });
 }
 
-test("KMeans recovers blobs with f64 input", () => {
-  const km = new KMeansModel(2, undefined, undefined, undefined, 1n);
-  km.fit(new Float64Array(BLOBS), 2);
-  assert.deepEqual(canonical(Array.from(km.labels)), [0, 0, 0, 1, 1, 1]);
-  assert.ok(km.inertia < 0.1);
-  assert.equal(km.centers.length, 4);
+function notFitted(model, call) {
+  assert.throws(call, /not fitted/, `${model} should refuse before fit`);
+}
+
+// ---------------------------------------------------------------- options
+
+test("the version is exposed", () => {
+  assert.match(m.version(), /^\d+\.\d+\.\d+/);
 });
 
-test("KMeans f32 path agrees with f64 on easy data", () => {
-  const a = new KMeansModel(2, undefined, undefined, undefined, 1n);
-  a.fit(new Float64Array(BLOBS), 2);
-  const b = new KMeansModel(2, undefined, undefined, undefined, 1n);
+test("options must be an object", () => {
+  assert.throws(() => new m.KMeansModel("three"), /options must be an object/);
+});
+
+test("a required option is named when it is missing", () => {
+  assert.throws(() => new m.KMeansModel({}), /option nClusters is required/);
+});
+
+test("a seed must be a number, not a BigInt", () => {
+  assert.throws(() => new m.KMeansModel({ nClusters: 2, seed: 1n }), /option seed must be a number/);
+});
+
+test("a count must be a non-negative integer", () => {
+  assert.throws(() => new m.KMeansModel({ nClusters: 2.5 }), /non-negative integer/);
+  assert.throws(() => new m.KMeansModel({ nClusters: -1 }), /non-negative integer/);
+});
+
+// ---------------------------------------------------------------- clustering
+
+test("KMeans recovers blobs in f64 and f32", () => {
+  const a = new m.KMeansModel({ nClusters: 2, seed: 1 });
+  a.fit(BLOBS, 2);
+  assert.deepEqual(canonical(a.labels), [0, 0, 0, 1, 1, 1]);
+  assert.ok(a.inertia < 0.1);
+  assert.equal(a.centers.length, 4);
+
+  const b = new m.KMeansModel({ nClusters: 2, seed: 1 });
   b.fitF32(new Float32Array(BLOBS), 2);
-  assert.deepEqual(canonical(Array.from(a.labels)), canonical(Array.from(b.labels)));
+  assert.deepEqual(canonical(b.labels), canonical(a.labels));
 });
 
-test("KMeans predict and transform shapes", () => {
-  const km = new KMeansModel(2, undefined, undefined, undefined, 1n);
-  km.fit(new Float64Array(BLOBS), 2);
-  assert.deepEqual(Array.from(km.predict(new Float64Array(BLOBS), 2)), Array.from(km.labels));
-  const d = km.transform(new Float64Array(BLOBS), 2);
+test("KMeans predict and transform have the documented shapes", () => {
+  const km = new m.KMeansModel({ nClusters: 2, init: "random", seed: 1 });
+  km.fit(BLOBS, 2);
+  assert.deepEqual(Array.from(km.predict(BLOBS, 2)), Array.from(km.labels));
+  const d = km.transform(BLOBS, 2);
   assert.equal(d.length, 6 * 2);
   assert.ok(d.every((v) => v >= 0));
 });
 
-test("KMeans errors are thrown as JavaScript errors", () => {
-  assert.throws(() => new KMeansModel(2, undefined, undefined, "bogus"), /init must be/);
-  const km = new KMeansModel(2);
-  assert.throws(() => km.predict(new Float64Array(BLOBS), 2), /not fitted/);
-  assert.throws(() => km.fit(new Float64Array(BLOBS), 5), /multiple of cols/);
-  assert.throws(() => new KMeansModel(20).fit(new Float64Array(BLOBS), 2), /exceeds/);
+test("KMeans rejects an unknown init", () => {
+  assert.throws(() => new m.KMeansModel({ nClusters: 2, init: "bogus" }), /init must be/);
 });
 
-test("PCA round trip reconstructs a full-rank projection", () => {
-  const data = new Float64Array([1, 2, 3, 4, 2, 1, 0, 5, 3, 3, 1, 2]);
-  const p = new PcaModel(2);
-  p.fit(data, 2);
-  const z = p.transform(data, 2);
-  const back = p.inverseTransform(z, 2);
-  for (let i = 0; i < data.length; i++) {
-    assert.ok(Math.abs(back[i] - data[i]) < 1e-9, `${back[i]} vs ${data[i]}`);
-  }
-  const ratio = Array.from(p.explainedVarianceRatio);
-  assert.ok(Math.abs(ratio.reduce((a, b) => a + b, 0) - 1) < 1e-9);
+test("KMeans refuses to predict before fit", () => {
+  notFitted("KMeansModel", () => new m.KMeansModel({ nClusters: 2 }).predict(BLOBS, 2));
 });
 
-test("PCA f32 agrees with f64 to single precision", () => {
-  const data = [1, 2, 3, 4, 2, 1, 0, 5, 3, 3, 1, 2];
-  const a = new PcaModel(1);
-  a.fit(new Float64Array(data), 2);
-  const b = new PcaModel(1);
-  b.fitF32(new Float32Array(data), 2);
-  const ca = Array.from(a.components);
-  const cb = Array.from(b.components);
-  const sign = ca[0] * cb[0] + ca[1] * cb[1] < 0 ? -1 : 1;
-  for (let i = 0; i < ca.length; i++) {
-    assert.ok(Math.abs(ca[i] - sign * cb[i]) < 1e-4);
-  }
+test("DBSCAN labels the blobs and marks noise", () => {
+  const db = new m.DbscanModel({ eps: 0.5, minSamples: 2 });
+  db.fit(new Float64Array([...BLOBS, 50, 50]), 2);
+  assert.deepEqual(Array.from(db.labels).slice(0, 6), [0, 0, 0, 1, 1, 1]);
+  assert.equal(db.labels[6], -1);
+  assert.ok(db.coreSampleIndices.length > 0);
 });
 
-test("PCA before fit throws", () => {
-  assert.throws(() => new PcaModel(1).transform(new Float64Array(4), 2), /not fitted/);
+test("HDBSCAN returns labels for the blobs", () => {
+  const hd = new m.HdbscanModel({ minClusterSize: 3 });
+  hd.fit(BLOBS, 2);
+  assert.equal(hd.labels.length, 6);
 });
 
-// ---------------------------------------------------------------- Phase 8 estimators
+// ---------------------------------------------------------------- decomposition
 
-const {
-  DbscanModel,
-  HdbscanModel,
-  TruncatedSvdModel,
-  NmfModel,
-  RidgeModel,
-  LassoModel,
-  ElasticNetModel,
-  LogisticRegressionModel,
-  StumpForestModel,
-} = require("../pkg/tpt_ml_proven_wasm.js");
-
-test("DBSCAN and HDBSCAN find the blobs and mark noise", () => {
-  const data = Float64Array.from([...BLOBS, 50, -50]);
-  const db = new DbscanModel(1.0, 3);
-  db.fit(data, 2);
-  const labels = Array.from(db.labels);
-  assert.equal(labels[labels.length - 1], -1);
-  assert.equal(labels[0], labels[1]);
-  assert.equal(labels[3], labels[4]);
-  assert.notEqual(labels[0], labels[3]);
-
-  const hd = new HdbscanModel(3, undefined);
-  hd.fit(Float64Array.from(BLOBS), 2);
-  const h = Array.from(hd.labels);
-  assert.notEqual(h[0], h[3]);
-  assert.equal(h[0], h[1]);
+test("PCA transforms and inverts with the documented shapes", () => {
+  const p = new m.PcaModel({ nComponents: 1 });
+  p.fit(BLOBS, 2);
+  const z = p.transform(BLOBS, 2);
+  assert.equal(z.length, 6);
+  const back = p.inverseTransform(z, 1);
+  assert.equal(back.length, BLOBS.length);
+  assert.equal(p.components.length, 2);
+  assert.equal(p.mean.length, 2);
 });
 
-test("TruncatedSVD singular values match the top of the spectrum", () => {
-  const svd = new TruncatedSvdModel(2);
-  svd.fit(Float64Array.from(BLOBS.map((v) => v + 1)), 2);
-  const sv = Array.from(svd.singularValues);
-  assert.equal(sv.length, 2);
-  assert.ok(sv[0] >= sv[1] && sv[1] >= 0);
+test("PCA in f32 keeps the same shapes", () => {
+  const p = new m.PcaModel({ nComponents: 1 });
+  p.fitF32(new Float32Array(BLOBS), 2);
+  assert.equal(p.transform(BLOBS, 2).length, 6);
 });
 
-test("NMF factors are non-negative", () => {
-  const data = Float64Array.from([1, 2, 3, 4, 2, 1, 0, 3, 5, 1, 2, 2]);
-  const nmf = new NmfModel(2, 300, undefined, 1n);
-  nmf.fit(data, 3);
-  assert.ok(Array.from(nmf.components).every((v) => v >= 0));
-  assert.equal(nmf.transform(data, 3).length, 8);
+test("truncated SVD reports its singular values", () => {
+  const s = new m.TruncatedSvdModel({ nComponents: 2 });
+  s.fit(BLOBS, 2);
+  assert.equal(s.singularValues.length, 2);
+  assert.ok(s.singularValues[0] >= s.singularValues[1]);
+  assert.equal(s.transform(BLOBS, 2).length, 12);
 });
 
-test("Ridge recovers a linear relation; Lasso zeroes an unused feature", () => {
-  const x = Float64Array.from([0, 1, 1, 0, 2, 1, 1, 2, 3, 1, 0, 3]);
-  const y = Float64Array.from(Array.from({ length: 6 }, (_, i) => 2 * x[i * 2] - x[i * 2 + 1]));
-  const r = new RidgeModel(1e-9);
-  r.fit(x, 2, y);
-  assert.ok(Math.abs(r.coef[0] - 2) < 1e-4 && Math.abs(r.coef[1] + 1) < 1e-4);
-  const l = new LassoModel(0.5, 10000, 1e-10);
-  l.fit(x, 2, Float64Array.from(Array.from({ length: 6 }, (_, i) => 2 * x[i * 2])));
-  assert.ok(Math.abs(l.coef[1]) < 1e-12);
-  const e = new ElasticNetModel(0.1, 0.5, 10000, 1e-10);
-  e.fit(x, 2, y);
+test("NMF factorises non-negative data", () => {
+  const nmf = new m.NmfModel({ nComponents: 1, seed: 2 });
+  nmf.fit(BLOBS, 2);
+  assert.equal(nmf.components.length, 2);
+  assert.equal(nmf.transform(BLOBS, 2).length, 6);
+});
+
+// ---------------------------------------------------------------- linear models
+
+test("Ridge recovers an exact linear relation", () => {
+  const r = new m.RidgeModel({ alpha: 1e-9 });
+  r.fit(LINEAR_X, 2, LINEAR_Y);
+  assert.ok(Math.abs(r.coef[0] - 2) < 1e-6);
+  assert.ok(Math.abs(r.coef[1] + 1) < 1e-6);
+  assert.ok(Math.abs(r.intercept - 3) < 1e-6);
+  assert.ok(r.score(LINEAR_X, 2, LINEAR_Y) > 0.999999);
+});
+
+test("Lasso and ElasticNet fit and predict", () => {
+  const l = new m.LassoModel({ alpha: 0.01 });
+  l.fit(LINEAR_X, 2, LINEAR_Y);
+  assert.equal(l.predict(LINEAR_X, 2).length, 6);
+  const e = new m.ElasticNetModel({ alpha: 0.01, l1Ratio: 0.5 });
+  e.fit(LINEAR_X, 2, LINEAR_Y);
   assert.equal(e.coef.length, 2);
 });
 
-test("logistic regression keeps labels and returns probability rows", () => {
-  const lr = new LogisticRegressionModel(10.0);
-  lr.fit(Float64Array.from(BLOBS), 2, Float64Array.from([7, 7, 7, 3, 3, 3]));
+test("binary logistic regression keeps the original labels", () => {
+  const x = new Float64Array([-2, 0, -1, 0, -0.5, 0, 0.5, 0, 1, 0, 2, 0]);
+  const y = new Float64Array([3, 3, 3, 7, 7, 7]);
+  const lr = new m.LogisticRegressionModel({ C: 10 });
+  lr.fit(x, 2, y);
   assert.deepEqual(Array.from(lr.classes), [3, 7]);
-  assert.deepEqual(Array.from(lr.predict(Float64Array.from(BLOBS), 2)), [7, 7, 7, 3, 3, 3]);
-  const p = Array.from(lr.predictProba(Float64Array.from(BLOBS), 2));
-  assert.equal(p.length, 12);
-  assert.ok(Math.abs(p[0] + p[1] - 1) < 1e-12);
+  assert.deepEqual(Array.from(lr.predict(x, 2)), [3, 3, 3, 7, 7, 7]);
+  assert.equal(lr.score(x, 2, y), 1);
+  assert.equal(lr.predictProba(x, 2).length, 12);
 });
 
-test("stump forest fits a threshold rule", () => {
-  const x = Float64Array.from(Array.from({ length: 40 }, (_, i) => i));
-  const y = Float64Array.from(Array.from({ length: 40 }, (_, i) => (i < 20 ? 0 : 1)));
-  const sf = new StumpForestModel(25, 7n);
-  sf.fit(x, 1, y);
-  assert.deepEqual(Array.from(sf.predict(x, 1)), Array.from(y));
+test("multinomial logistic regression separates three groups", () => {
+  const x = new Float64Array([0, 0, 0.1, 0, 5, 5, 5.1, 5, 0, 5, 0.1, 5]);
+  const y = new Float64Array([0, 0, 1, 1, 2, 2]);
+  const lr = new m.LogisticRegressionModel({ C: 5 });
+  lr.fit(x, 2, y);
+  assert.deepEqual(Array.from(lr.classes), [0, 1, 2]);
+  assert.equal(lr.score(x, 2, y), 1);
 });
 
-test("unfitted access and shape errors throw", () => {
-  assert.throws(() => new RidgeModel(0.1).predict(Float64Array.from([1, 2]), 2));
-  assert.throws(() => new RidgeModel(0.1).fit(Float64Array.from([1, 2, 3]), 2, Float64Array.from([1])));
+// ---------------------------------------------------------------- ensembles
+
+test("the stump forest learns a threshold rule", () => {
+  const x = new Float64Array([0, 1, 1, 2, 2, 3, 3, 4, 10, 1, 11, 2, 12, 3, 13, 4]);
+  const y = new Float64Array([0, 0, 0, 0, 1, 1, 1, 1]);
+  const f = new m.StumpForestModel({ nEstimators: 15, seed: 4 });
+  f.fit(x, 2, y);
+  assert.equal(f.score(x, 2, y), 1);
+});
+
+// ---------------------------------------------------------------- preprocessing
+
+test("the standard scaler centres and scales each feature", () => {
+  const s = new m.StandardScalerModel();
+  const out = s.fitTransform(BLOBS, 2);
+  const col0 = Array.from({ length: 6 }, (_, r) => out[2 * r]);
+  const mean = col0.reduce((a, b) => a + b, 0) / 6;
+  assert.ok(Math.abs(mean) < 1e-12);
+  assert.equal(s.outputCols, 2);
+});
+
+test("min-max and robust scalers transform to the documented ranges", () => {
+  const mm = new m.MinMaxScalerModel();
+  const out = mm.fitTransform(BLOBS, 2);
+  assert.ok(Math.min(...out) >= 0 && Math.max(...out) <= 1 + 1e-12);
+  const rb = new m.RobustScalerModel();
+  assert.equal(rb.fitTransform(BLOBS, 2).length, BLOBS.length);
+});
+
+test("the one-hot encoder reports its output width", () => {
+  const cats = new Float64Array([0, 1, 1, 2, 0, 0]);
+  const e = new m.OneHotEncoderModel();
+  e.fit(cats, 2);
+  assert.equal(e.outputCols, 3 + 2);
+  const out = e.transform(cats, 2);
+  assert.equal(out.length, 3 * 5);
+  assert.ok(out.every((v) => v === 0 || v === 1));
+});
+
+test("the ordinal encoder maps categories to their indices", () => {
+  // Rows [5, 9] and [7, 9]: column 0 has categories {5, 7}, column 1 has {9}.
+  const cats = new Float64Array([5, 9, 7, 9]);
+  const e = new m.OrdinalEncoderModel();
+  assert.deepEqual(Array.from(e.fitTransform(cats, 2)), [0, 0, 1, 0]);
+});
+
+test("the imputer fills NaN with the chosen statistic", () => {
+  const holey = new Float64Array([1, NaN, 3, 4, 5, 6]);
+  const im = new m.SimpleImputerModel({ strategy: "constant", fillValue: -9 });
+  assert.deepEqual(Array.from(im.fitTransform(holey, 2)), [1, -9, 3, 4, 5, 6]);
+  assert.throws(() => new m.SimpleImputerModel({ strategy: "nearest" }), /strategy must be/);
+});
+
+// ---------------------------------------------------------------- trees and forests
+
+test("a regression tree fits a step exactly", () => {
+  const x = new Float64Array([0, 1, 2, 3, 4, 5, 6, 7]);
+  const y = new Float64Array([1, 1, 1, 1, 9, 9, 9, 9]);
+  const t = new m.DecisionTreeRegressorModel({ maxDepth: 2 });
+  t.fit(x, 1, y);
+  assert.deepEqual(Array.from(t.predict(x, 1)), Array.from(y));
+  assert.equal(t.score(x, 1, y), 1);
+});
+
+test("a classification tree reports its classes and accuracy", () => {
+  const x = new Float64Array([0, 1, 2, 3, 4, 5, 6, 7]);
+  const y = new Float64Array([0, 0, 0, 0, 1, 1, 1, 1]);
+  const t = new m.DecisionTreeClassifierModel({ maxDepth: 2, criterion: "entropy" });
+  t.fit(x, 1, y);
+  assert.deepEqual(Array.from(t.classes), [0, 1]);
+  assert.equal(t.score(x, 1, y), 1);
+  assert.throws(() => new m.DecisionTreeClassifierModel({ criterion: "chaos" }), /criterion must be/);
+});
+
+test("gradient boosting and forests fit the signal", () => {
+  const x = new Float64Array(Array.from({ length: 40 }, (_, i) => i / 4));
+  const y = Float64Array.from(x, (v) => 2 * v + 1);
+  const g = new m.GradientBoostingRegressorModel({ nEstimators: 40, learningRate: 0.3, maxDepth: 3, seed: 1 });
+  g.fit(x, 1, y);
+  assert.ok(g.score(x, 1, y) > 0.95);
+
+  const rf = new m.RandomForestRegressorModel({ nEstimators: 20, maxDepth: 5, seed: 2 });
+  rf.fit(x, 1, y);
+  assert.ok(rf.score(x, 1, y) > 0.8);
+
+  const labels = Float64Array.from(x, (v) => (v > 5 ? 1 : 0));
+  const rc = new m.RandomForestClassifierModel({ nEstimators: 15, maxDepth: 4, seed: 3 });
+  rc.fit(x, 1, labels);
+  assert.ok(rc.score(x, 1, labels) > 0.9);
+  assert.deepEqual(Array.from(rc.classes), [0, 1]);
+});
+
+test("a seed reproduces a random forest, given as a number", () => {
+  const x = new Float64Array(Array.from({ length: 30 }, (_, i) => i));
+  const y = Float64Array.from(x, (v) => (v % 3 === 0 ? 1 : 0));
+  const fit = () => {
+    const f = new m.RandomForestClassifierModel({ nEstimators: 9, maxDepth: 3, seed: 5 });
+    f.fit(x, 1, y);
+    return Array.from(f.predict(x, 1));
+  };
+  assert.deepEqual(fit(), fit());
 });

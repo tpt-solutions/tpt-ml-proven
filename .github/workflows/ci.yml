@@ -143,8 +143,9 @@ jobs:
         with:
           node-version: "22"
       - run: cargo install wasm-pack --locked
-      - run: wasm-pack build --target nodejs --release --no-opt --out-dir pkg
-      - run: node --test tests/bindings.test.mjs
+      # Builds the nodejs, web and bundler packages, and writes each package.json from the template.
+      - run: node scripts/build.mjs
+      - run: node --test tests/bindings.test.mjs tests/web-target.test.mjs
 
   # C ABI tests, and a check that the committed header matches the Rust source.
   c-abi:

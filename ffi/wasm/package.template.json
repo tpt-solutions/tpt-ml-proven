@@ -1,0 +1,19 @@
+{
+  "name": "tpt-ml-proven-wasm",
+  "version": "@VERSION@",
+  "description": "@DESCRIPTION@",
+  "license": "MIT OR Apache-2.0",
+  "author": "TPT Solutions",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tpt-solutions/tpt-ml-proven.git",
+    "directory": "ffi/wasm"
+  },
+  "homepage": "https://github.com/tpt-solutions/tpt-ml-proven",
+  "keywords": ["machine-learning", "webassembly", "clustering", "regression", "decision-tree", "formal-verification"],
+  "files": "@FILES@",
+  "main": "@MAIN@",
+  "module": "@MODULE@",
+  "types": "@TYPES@",
+  "sideEffects": "@SIDE_EFFECTS@"
+}
