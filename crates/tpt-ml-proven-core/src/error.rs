@@ -78,6 +78,12 @@ pub enum Error {
     NotFitted,
     /// A contract clause failed at runtime.
     Contract(ContractViolation),
+    /// A model file could not be read: wrong magic, unknown version, wrong kind, bad checksum,
+    /// or truncated data.
+    Format {
+        /// What was wrong with the file.
+        reason: &'static str,
+    },
 }
 
 /// Error type returned by `fit`. Same as [`Error`].
@@ -106,6 +112,7 @@ impl fmt::Display for Error {
             }
             Error::NotFitted => write!(f, "estimator has not been fitted"),
             Error::Contract(e) => fmt::Display::fmt(e, f),
+            Error::Format { reason } => write!(f, "invalid model data: {reason}"),
         }
     }
 }
