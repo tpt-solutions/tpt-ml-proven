@@ -363,9 +363,11 @@ fn centers_flat<F: Float>(centers: &Dense<F>) -> Vec<F> {
 #[inline]
 pub(crate) fn sq_dist<F: Float>(a: &[F], b: &[F]) -> F {
     let mut acc = [F::ZERO; 8];
-    let (chunks_a, rest_a) = a.as_chunks::<8>();
-    let (chunks_b, rest_b) = b.as_chunks::<8>();
-    for (xa, xb) in chunks_a.iter().zip(chunks_b) {
+    // `chunks_exact` rather than `as_chunks`, which needs Rust 1.88; same chunks and order.
+    let chunks_a = a.chunks_exact(8);
+    let chunks_b = b.chunks_exact(8);
+    let (rest_a, rest_b) = (chunks_a.remainder(), chunks_b.remainder());
+    for (xa, xb) in chunks_a.zip(chunks_b) {
         for l in 0..8 {
             let d = xa[l] - xb[l];
             acc[l] = acc[l] + d * d;
