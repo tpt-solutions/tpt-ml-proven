@@ -1,0 +1,13 @@
+# Contract for StandardScaler (crates/tpt-ml-proven-preprocessing/src/scalers.rs).
+# Format and verification rules: docs/contracts/README.md
+# Preconditions (non-empty, finite input) are enforced by `validate` and return errors,
+# so they are not restated here.
+
+contract standard_scaler
+source crates/tpt-ml-proven-preprocessing/src/scalers.rs
+
+# On the training data, every column has mean 0 (up to rounding).
+ensures[centred]: centring_error(X, mean, scale) <= scaler_tol
+
+# Every non-constant column has variance 1. Constant columns map to 0 and are excluded.
+ensures[unit_variance]: variance_error(X, mean, scale) <= scaler_tol

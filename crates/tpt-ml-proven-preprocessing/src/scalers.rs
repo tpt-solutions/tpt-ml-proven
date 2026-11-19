@@ -5,9 +5,12 @@
 //! offset` and applies it. The inverse is `x = (y - offset) / factor`.
 
 use tpt_ml_proven_core::error::{Error, ShapeError};
-use tpt_ml_proven_core::{ArrayView, Dense, Float, Transformer, UnsupervisedEstimator};
+use tpt_ml_proven_core::{ensures, ArrayView, Dense, Float, Transformer, UnsupervisedEstimator};
 
 use crate::nonzero;
+
+/// Relative slack for the scaler postconditions, in floating point.
+const SCALER_TOL: f64 = 1e-8;
 
 /// Learned per-column affine map.
 #[derive(Debug, Clone, PartialEq)]
@@ -130,15 +133,48 @@ impl<F: Float> UnsupervisedEstimator for StandardScaler<F> {
         let n = x.rows() as f64;
         let mut mean = Vec::new();
         let mut scale = Vec::new();
+        // Standard deviation before the constant-column fallback; zero marks a constant column.
+        let mut raw_std = Vec::new();
         for c in 0..x.cols() {
             let col = column(&x, c);
             let m = col.iter().sum::<f64>() / n;
             let var = col.iter().map(|v| (v - m) * (v - m)).sum::<f64>() / n;
             mean.push(m);
+            raw_std.push(var.sqrt());
             scale.push(nonzero(var.sqrt()));
         }
-        let factor = scale.iter().map(|s| 1.0 / s).collect();
-        let offset = mean.iter().zip(&scale).map(|(m, s)| -m / s).collect();
+        let factor: Vec<f64> = scale.iter().map(|s| 1.0 / s).collect();
+        let offset: Vec<f64> = mean.iter().zip(&scale).map(|(m, s)| -m / s).collect();
+
+        // Postconditions on the training data: every column is centred, and every
+        // non-constant column has unit variance. Constant columns map to zero.
+        let (mut worst_mean, mut worst_var, mut largest) = (0.0_f64, 0.0_f64, 1.0_f64);
+        let mut z_cols = Vec::with_capacity(x.cols());
+        for c in 0..x.cols() {
+            let z: Vec<f64> = column(&x, c)
+                .iter()
+                .map(|v| v * factor[c] + offset[c])
+                .collect();
+            largest = largest.max(z.iter().fold(0.0_f64, |a, v| a.max(v.abs())));
+            z_cols.push(z);
+        }
+        for (c, z) in z_cols.iter().enumerate() {
+            let zm = z.iter().sum::<f64>() / n;
+            let zv = z.iter().map(|v| (v - zm) * (v - zm)).sum::<f64>() / n;
+            worst_mean = worst_mean.max(zm.abs());
+            if raw_std[c] > 0.0 {
+                worst_var = worst_var.max((zv - 1.0).abs());
+            }
+        }
+        ensures!(
+            worst_mean <= SCALER_TOL * largest,
+            "standard_scaler.centred"
+        );
+        ensures!(
+            worst_var <= SCALER_TOL * largest,
+            "standard_scaler.unit_variance"
+        );
+
         self.mean = mean;
         self.scale = scale;
         self.fitted = Some(Affine { offset, factor });
@@ -213,6 +249,19 @@ impl<F: Float> UnsupervisedEstimator for MinMaxScaler<F> {
             factor.push(scale);
             offset.push(-lo * scale);
         }
+        // Postcondition: the training data lands in [0, 1] (up to rounding).
+        let below = (0..x.cols()).fold(0.0_f64, |acc, c| {
+            column(&x, c)
+                .iter()
+                .fold(acc, |a, v| a.max(-(v * factor[c] + offset[c])))
+        });
+        let above = (0..x.cols()).fold(0.0_f64, |acc, c| {
+            column(&x, c)
+                .iter()
+                .fold(acc, |a, v| a.max(v * factor[c] + offset[c] - 1.0))
+        });
+        ensures!(below <= SCALER_TOL, "minmax_scaler.within_range");
+        ensures!(above <= SCALER_TOL, "minmax_scaler.within_range");
         self.fitted = Some(Affine { offset, factor });
         Ok(())
     }

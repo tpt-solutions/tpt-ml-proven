@@ -1,0 +1,8 @@
+# Contract for SimpleImputer (crates/tpt-ml-proven-preprocessing/src/impute.rs).
+# Format and verification rules: docs/contracts/README.md
+
+contract simple_imputer
+source crates/tpt-ml-proven-preprocessing/src/impute.rs
+
+# The imputed output has no missing (non-finite) value.
+ensures[no_missing]: missing_count(Z) == 0

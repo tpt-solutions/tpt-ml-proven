@@ -1,0 +1,8 @@
+# Contract for OrdinalEncoder (crates/tpt-ml-proven-preprocessing/src/encoders.rs).
+# Format and verification rules: docs/contracts/README.md
+
+contract ordinal
+source crates/tpt-ml-proven-preprocessing/src/encoders.rs
+
+# Decoding each code gives back the original value.
+ensures[round_trip]: decode_mismatch(X, Z, categories) == 0

@@ -6,7 +6,7 @@
 //! are an error, as in scikit-learn's default `handle_unknown="error"`.
 
 use tpt_ml_proven_core::error::{Error, ShapeError};
-use tpt_ml_proven_core::{ArrayView, Dense, Float, Transformer, UnsupervisedEstimator};
+use tpt_ml_proven_core::{ensures, ArrayView, Dense, Float, Transformer, UnsupervisedEstimator};
 
 /// Sorted distinct values of each column.
 fn categories<F: Float, X: ArrayView<Elem = F>>(x: &X) -> Result<Vec<Vec<f64>>, Error> {
@@ -106,6 +106,13 @@ impl<F: Float> Transformer for OneHotEncoder<F> {
                 offset += col_cats.len();
             }
         }
+        // Postcondition: each input feature sets exactly one indicator, so every row
+        // contributes one hot entry per feature.
+        let hot_per_row = out.iter().filter(|v| **v == F::ONE).count();
+        ensures!(
+            hot_per_row == x.rows() * cats.len(),
+            "one_hot.one_per_feature"
+        );
         Ok(Dense::from_vec(out, x.rows(), width)?)
     }
 
@@ -175,6 +182,8 @@ impl<F: Float> Transformer for OrdinalEncoder<F> {
             for (c, col_cats) in cats.iter().enumerate() {
                 let v = x.get(r, c).to_f64();
                 let k = position(col_cats, v).ok_or_else(|| unknown(v))?;
+                // Round trip: the code points back at the original value.
+                ensures!(col_cats[k] == v, "ordinal.round_trip");
                 out.push(F::from_usize(k));
             }
         }

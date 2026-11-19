@@ -1,0 +1,8 @@
+# Contract for MinMaxScaler (crates/tpt-ml-proven-preprocessing/src/scalers.rs).
+# Format and verification rules: docs/contracts/README.md
+
+contract minmax_scaler
+source crates/tpt-ml-proven-preprocessing/src/scalers.rs
+
+# On the training data, every scaled value lies in [0, 1] (up to rounding).
+ensures[within_range]: range_excess(X, factor, offset) <= scaler_tol

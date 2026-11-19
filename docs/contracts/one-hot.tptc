@@ -1,0 +1,8 @@
+# Contract for OneHotEncoder (crates/tpt-ml-proven-preprocessing/src/encoders.rs).
+# Format and verification rules: docs/contracts/README.md
+
+contract one_hot
+source crates/tpt-ml-proven-preprocessing/src/encoders.rs
+
+# Each row sets exactly one indicator per input feature.
+ensures[one_per_feature]: hot_count(Z) == n_rows * n_features

@@ -5,7 +5,7 @@
 //! imputer accepts NaN in its input, since that is what it is for.
 
 use tpt_ml_proven_core::error::{Error, ShapeError};
-use tpt_ml_proven_core::{ArrayView, Dense, Float, Transformer, UnsupervisedEstimator};
+use tpt_ml_proven_core::{ensures, ArrayView, Dense, Float, Transformer, UnsupervisedEstimator};
 
 /// How the fill value for each column is chosen.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -138,6 +138,11 @@ impl<F: Float> Transformer for SimpleImputer<F> {
                 out.push(if v.is_finite() { v } else { F::from_f64(f) });
             }
         }
+        // Postcondition: no missing value survives the imputation.
+        ensures!(
+            out.iter().all(|v| v.is_finite()),
+            "simple_imputer.no_missing"
+        );
         Ok(Dense::from_vec(out, x.rows(), x.cols())?)
     }
 
