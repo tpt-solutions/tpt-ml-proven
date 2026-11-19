@@ -45,6 +45,11 @@ pub(crate) struct Limits {
 }
 
 impl Tree {
+    /// The number of features the tree was grown on.
+    pub fn n_features(&self) -> usize {
+        self.n_features
+    }
+
     /// The tree's depth: 0 for a single leaf.
     pub fn depth(&self) -> usize {
         self.depth

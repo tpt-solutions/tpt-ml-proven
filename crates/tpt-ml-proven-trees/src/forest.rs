@@ -425,6 +425,20 @@ impl RandomForestClassifier {
     }
 }
 
+impl RandomForestRegressor {
+    /// The number of features the fitted forest was grown on, or `None` before `fit`.
+    pub fn n_features(&self) -> Option<usize> {
+        self.fitted.as_ref().map(|(_, n)| *n)
+    }
+}
+
+impl RandomForestClassifier {
+    /// The number of features the fitted forest was grown on, or `None` before `fit`.
+    pub fn n_features(&self) -> Option<usize> {
+        self.fitted.as_ref().map(|f| f.n_features)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

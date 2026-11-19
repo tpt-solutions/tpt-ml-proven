@@ -518,6 +518,27 @@ impl<F: Float> StandardScaler<F> {
     }
 }
 
+impl<F: Float> MinMaxScaler<F> {
+    /// The number of features the fitted scaler was learned on, or `None` before `fit`.
+    pub fn n_features(&self) -> Option<usize> {
+        self.fitted.as_ref().map(|a| a.factor.len())
+    }
+}
+
+impl<F: Float> RobustScaler<F> {
+    /// The number of features the fitted scaler was learned on, or `None` before `fit`.
+    pub fn n_features(&self) -> Option<usize> {
+        self.fitted.as_ref().map(|a| a.factor.len())
+    }
+}
+
+impl<F: Float> StandardScaler<F> {
+    /// The number of features the fitted scaler was learned on, or `None` before `fit`.
+    pub fn n_features(&self) -> Option<usize> {
+        self.fitted.as_ref().map(|a| a.factor.len())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

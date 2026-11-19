@@ -362,6 +362,13 @@ impl<F: Float> StumpForest<F> {
     }
 }
 
+impl<F: Float> StumpForest<F> {
+    /// The number of features the fitted forest was trained on, or `None` before `fit`.
+    pub fn n_features(&self) -> Option<usize> {
+        self.fitted.as_ref().map(|_| self.n_features)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

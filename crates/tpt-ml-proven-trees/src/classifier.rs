@@ -435,6 +435,13 @@ impl DecisionTreeClassifier {
     }
 }
 
+impl DecisionTreeClassifier {
+    /// The number of features the fitted tree was grown on, or `None` before `fit`.
+    pub fn n_features(&self) -> Option<usize> {
+        self.fitted.as_ref().map(|f| f.tree.n_features)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
