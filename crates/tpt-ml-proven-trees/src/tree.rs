@@ -7,6 +7,10 @@
 //! `friedman_mse` criterion of scikit-learn up to a constant. A split sends `x ≤ threshold`
 //! left, and the threshold is the midpoint of two adjacent distinct values, as scikit-learn
 //! chooses it. A leaf predicts the mean of its targets.
+//!
+//! Trees grow depth-first by default. With a `max_leaf_nodes` limit they grow best-first, as
+//! scikit-learn does: the open node whose split reduces the error most is split next, until
+//! the limit is reached.
 
 use tpt_ml_proven_core::error::Error;
 use tpt_ml_proven_core::rng::SplitMix64;
@@ -33,6 +37,9 @@ pub struct Tree {
     pub(crate) nodes: Vec<Node>,
     pub(crate) n_features: usize,
     pub(crate) depth: usize,
+    /// Sum, over the splits on each feature, of the reduction in impurity they made. Empty when
+    /// the tree was loaded from a file that did not store it.
+    pub(crate) importances: Vec<f64>,
 }
 
 /// Tree-growing limits.
@@ -40,8 +47,19 @@ pub struct Tree {
 pub(crate) struct Limits {
     pub max_depth: usize,
     pub min_samples_leaf: usize,
+    /// A node needs at least this many rows to be split.
+    pub min_samples_split: usize,
+    /// Growth stops at this many leaves, growing best-first. `usize::MAX` means no limit.
+    pub max_leaf_nodes: usize,
     /// Features considered per split. `usize::MAX` means all of them.
     pub max_features: usize,
+}
+
+impl Limits {
+    /// The fewest rows a node needs before it may be split.
+    pub(crate) fn split_threshold(&self) -> usize {
+        (2 * self.min_samples_leaf).max(self.min_samples_split)
+    }
 }
 
 impl Tree {
@@ -61,6 +79,26 @@ impl Tree {
             .iter()
             .filter(|n| matches!(n, Node::Leaf { .. }))
             .count()
+    }
+
+    /// Each feature's share of the total impurity reduction, summing to one (all zeros for a
+    /// tree that never split). `None` when the tree was loaded without importances.
+    pub fn feature_importances(&self) -> Option<Vec<f64>> {
+        if self.importances.is_empty() {
+            return None;
+        }
+        let total: f64 = self.importances.iter().sum();
+        if total > 0.0 {
+            Some(self.importances.iter().map(|g| g / total).collect())
+        } else {
+            Some(vec![0.0; self.importances.len()])
+        }
+    }
+
+    /// The tree without its importances. Trees inside an ensemble do not store them.
+    pub(crate) fn without_importances(mut self) -> Self {
+        self.importances.clear();
+        self
     }
 
     /// Predicts the value for one row of `n_features` values.
@@ -116,21 +154,39 @@ pub(crate) fn fit_tree(
     );
     requires!(rows >= 1, "tree.rows_positive");
 
-    let mut nodes = Vec::new();
     let idx: Vec<usize> = (0..rows).collect();
-    let mut depth = 0;
     let mut grower = Grower {
         data,
         cols,
         targets,
         limits,
         rng,
+        importances: vec![0.0; cols],
     };
-    grower.grow(idx, 0, &mut nodes, &mut depth);
+    let (nodes, depth) = if limits.max_leaf_nodes == usize::MAX {
+        let mut nodes = Vec::new();
+        let mut depth = 0;
+        grower.grow(idx, 0, &mut nodes, &mut depth);
+        (nodes, depth)
+    } else {
+        // The importances are moved out so the closure can borrow the grower.
+        let mut importances = std::mem::take(&mut grower.importances);
+        let built = grow_best_first(
+            idx,
+            data,
+            cols,
+            limits.max_leaf_nodes,
+            &mut importances,
+            |rows, depth| grower.evaluate(rows, depth),
+        );
+        grower.importances = importances;
+        built
+    };
     let tree = Tree {
         nodes,
         n_features: cols,
         depth,
+        importances: grower.importances,
     };
 
     // Structural invariants of a grown tree.
@@ -140,6 +196,108 @@ pub(crate) fn fit_tree(
     );
     ensures!(tree.depth() <= limits.max_depth, "tree.depth_bounded");
     Ok(tree)
+}
+
+/// Split `idx` by `x[feature] <= threshold`, keeping the order of the rows.
+pub(crate) fn partition_rows(
+    idx: Vec<usize>,
+    data: &[f64],
+    cols: usize,
+    feature: usize,
+    threshold: f64,
+) -> (Vec<usize>, Vec<usize>) {
+    idx.into_iter()
+        .partition(|&i| data[i * cols + feature] <= threshold)
+}
+
+/// A node whose rows are not yet split, waiting in the best-first frontier.
+struct Open {
+    slot: usize,
+    idx: Vec<usize>,
+    depth: usize,
+    split: Split,
+}
+
+/// Grows a tree best-first. `evaluate` gives a node's leaf record and, when the node may be
+/// split, its best split. Each step splits the open node with the largest gain, earliest in
+/// the frontier on ties, until the tree has `max_leaves` leaves or nothing is left to split.
+/// Each split's gain is added to `importances`. Returns the nodes and the depth reached.
+pub(crate) fn grow_best_first<F>(
+    rows: Vec<usize>,
+    data: &[f64],
+    cols: usize,
+    max_leaves: usize,
+    importances: &mut [f64],
+    mut evaluate: F,
+) -> (Vec<Node>, usize)
+where
+    F: FnMut(&[usize], usize) -> (Node, Option<Split>),
+{
+    let mut nodes = Vec::new();
+    let mut depth_reached = 0;
+    let (root, root_split) = evaluate(&rows, 0);
+    nodes.push(root);
+    let mut open: Vec<Open> = Vec::new();
+    if let Some(split) = root_split {
+        open.push(Open {
+            slot: 0,
+            idx: rows,
+            depth: 0,
+            split,
+        });
+    }
+    let mut leaves = 1;
+    while leaves < max_leaves {
+        let mut pick: Option<usize> = None;
+        for (k, o) in open.iter().enumerate() {
+            if pick.is_none_or(|p| o.split.gain > open[p].split.gain) {
+                pick = Some(k);
+            }
+        }
+        let Some(k) = pick else { break };
+        let o = open.remove(k);
+        let Split {
+            feature,
+            threshold,
+            gain,
+        } = o.split;
+        importances[feature] += gain;
+        let count = o.idx.len();
+        let (left_rows, right_rows) = partition_rows(o.idx, data, cols, feature, threshold);
+        let child_depth = o.depth + 1;
+        let (left_node, left_split) = evaluate(&left_rows, child_depth);
+        let (right_node, right_split) = evaluate(&right_rows, child_depth);
+        let left = nodes.len();
+        nodes.push(left_node);
+        let right = nodes.len();
+        nodes.push(right_node);
+        nodes[o.slot] = Node::Split {
+            feature,
+            threshold,
+            left,
+            right,
+            count,
+        };
+        depth_reached = depth_reached.max(child_depth);
+        if let Some(split) = left_split {
+            open.push(Open {
+                slot: left,
+                idx: left_rows,
+                depth: child_depth,
+                split,
+            });
+        }
+        if let Some(split) = right_split {
+            open.push(Open {
+                slot: right,
+                idx: right_rows,
+                depth: child_depth,
+                split,
+            });
+        }
+        leaves += 1;
+    }
+    (nodes, depth_reached)
 }
 
 /// The features a node may split on: all of them, or `max_features` drawn without repetition.
@@ -179,10 +337,32 @@ struct Grower<'a> {
     targets: &'a [f64],
     limits: Limits,
     rng: &'a mut SplitMix64,
+    importances: Vec<f64>,
 }
 
 impl Grower<'_> {
-    /// Grows the subtree for `idx` and returns the index of its root in `nodes`.
+    /// The leaf record for `idx` and, if the node may be split, its best split.
+    fn evaluate(&mut self, idx: &[usize], depth: usize) -> (Node, Option<Split>) {
+        let n = idx.len();
+        let total: f64 = idx.iter().map(|&i| self.targets[i]).sum();
+        let mean = total / n as f64;
+        let sse: f64 = idx.iter().map(|&i| (self.targets[i] - mean).powi(2)).sum();
+        let leaf = Node::Leaf {
+            value: mean,
+            count: n,
+        };
+        let can_split =
+            depth < self.limits.max_depth && n >= self.limits.split_threshold() && sse > 1e-12;
+        let split = if can_split {
+            let features = choose_features(self.cols, self.limits.max_features, self.rng);
+            self.best_split(idx, total, &features)
+        } else {
+            None
+        };
+        (leaf, split)
+    }
+
+    /// Grows the subtree for `idx` depth-first and returns the index of its root in `nodes`.
     fn grow(
         &mut self,
         idx: Vec<usize>,
@@ -191,39 +371,20 @@ impl Grower<'_> {
         max_depth_seen: &mut usize,
     ) -> usize {
         let n = idx.len();
-        let total: f64 = idx.iter().map(|&i| self.targets[i]).sum();
-        let mean = total / n as f64;
         *max_depth_seen = (*max_depth_seen).max(depth);
-
-        let sse: f64 = idx.iter().map(|&i| (self.targets[i] - mean).powi(2)).sum();
-        let can_split =
-            depth < self.limits.max_depth && n >= 2 * self.limits.min_samples_leaf && sse > 1e-12;
-        let best = if can_split {
-            let features = choose_features(self.cols, self.limits.max_features, self.rng);
-            self.best_split(&idx, total, &features)
-        } else {
-            None
-        };
-
-        let Some(split) = best else {
+        let (leaf, split) = self.evaluate(&idx, depth);
+        let Some(split) = split else {
             let at = nodes.len();
-            nodes.push(Node::Leaf {
-                value: mean,
-                count: n,
-            });
+            nodes.push(leaf);
             return at;
         };
+        self.importances[split.feature] += split.gain;
 
-        let (data, cols) = (self.data, self.cols);
-        let (left_idx, right_idx): (Vec<usize>, Vec<usize>) = idx
-            .into_iter()
-            .partition(|&i| data[i * cols + split.feature] <= split.threshold);
+        let (left_idx, right_idx) =
+            partition_rows(idx, self.data, self.cols, split.feature, split.threshold);
         // Reserve this node's slot, then grow the children and fill the slot.
         let at = nodes.len();
-        nodes.push(Node::Leaf {
-            value: mean,
-            count: n,
-        });
+        nodes.push(leaf);
         let left = self.grow(left_idx, depth + 1, nodes, max_depth_seen);
         let right = self.grow(right_idx, depth + 1, nodes, max_depth_seen);
         nodes[at] = Node::Split {
@@ -237,14 +398,14 @@ impl Grower<'_> {
     }
 
     /// The split, among `features`, that most reduces squared error, or `None` if no valid
-    /// split reduces it.
+    /// split reduces it. Its gain is the reduction in squared error.
     fn best_split(&self, idx: &[usize], total: f64, features: &[usize]) -> Option<Split> {
         let (data, cols, targets) = (self.data, self.cols, self.targets);
         let min_leaf = self.limits.min_samples_leaf;
         let n = idx.len();
         // Maximising sl²/nl + sr²/nr is the same as minimising the children's squared error.
         let mut best_score = f64::NEG_INFINITY;
-        let mut best: Option<Split> = None;
+        let mut best: Option<(usize, f64)> = None;
         for &feature in features {
             let mut order = idx.to_vec();
             order.sort_by(|&a, &b| data[a * cols + feature].total_cmp(&data[b * cols + feature]));
@@ -267,17 +428,29 @@ impl Grower<'_> {
                     if threshold == next {
                         threshold = v;
                     }
-                    best = Some(Split { feature, threshold });
+                    best = Some((feature, threshold));
                 }
             }
         }
         // Accept only a split that reduces error, i.e. beats the unsplit node.
         let parent = total * total / n as f64;
-        best.filter(|_| best_score > parent + 1e-12 * (1.0 + parent.abs()))
+        let (feature, threshold) = best?;
+        if best_score > parent + 1e-12 * (1.0 + parent.abs()) {
+            Some(Split {
+                feature,
+                threshold,
+                gain: best_score - parent,
+            })
+        } else {
+            None
+        }
     }
 }
 
-struct Split {
-    feature: usize,
-    threshold: f64,
+/// The split a node takes: the feature, the threshold, and the reduction in impurity it gives.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct Split {
+    pub feature: usize,
+    pub threshold: f64,
+    pub gain: f64,
 }

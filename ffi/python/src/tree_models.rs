@@ -35,12 +35,17 @@ fn criterion_name(c: Criterion) -> &'static str {
 pub struct PyDecisionTreeRegressor {
     max_depth: usize,
     min_samples_leaf: usize,
+    min_samples_split: usize,
+    max_leaf_nodes: Option<usize>,
     fitted: Option<DecisionTreeRegressor>,
 }
 
 impl PyDecisionTreeRegressor {
     fn build(&self) -> DecisionTreeRegressor {
-        DecisionTreeRegressor::new(self.max_depth).with_min_samples_leaf(self.min_samples_leaf)
+        DecisionTreeRegressor::new(self.max_depth)
+            .with_min_samples_leaf(self.min_samples_leaf)
+            .with_min_samples_split(self.min_samples_split)
+            .with_max_leaf_nodes(self.max_leaf_nodes)
     }
 
     fn encode(&self) -> PyResult<Vec<u8>> {
@@ -56,6 +61,8 @@ impl PyDecisionTreeRegressor {
         Ok(Self {
             max_depth: m.max_depth(),
             min_samples_leaf: m.min_samples_leaf(),
+            min_samples_split: m.min_samples_split(),
+            max_leaf_nodes: m.max_leaf_nodes(),
             fitted: Some(m),
         })
     }
@@ -73,13 +80,32 @@ impl PyDecisionTreeRegressor {
         .ok_or_else(|| PyAttributeError::new_err("n_features_in_ is not available before fit"))
     }
 
+    /// Each feature's share of the total squared-error reduction. Raises AttributeError before
+    /// fit, and for a model loaded from a file written before importances were stored.
+    #[getter]
+    fn feature_importances_(&self) -> PyResult<Vec<f64>> {
+        self.fitted
+            .as_ref()
+            .and_then(|m| m.feature_importances())
+            .ok_or_else(|| {
+                PyAttributeError::new_err("feature_importances_ is not available for this model")
+            })
+    }
+
     /// Constructor parameters, as scikit-learn names them.
     #[new]
-    #[pyo3(signature = (max_depth=3, *, min_samples_leaf=1))]
-    fn new(max_depth: usize, min_samples_leaf: usize) -> PyResult<Self> {
+    #[pyo3(signature = (max_depth=3, *, min_samples_leaf=1, min_samples_split=2, max_leaf_nodes=None))]
+    fn new(
+        max_depth: usize,
+        min_samples_leaf: usize,
+        min_samples_split: usize,
+        max_leaf_nodes: Option<usize>,
+    ) -> PyResult<Self> {
         Ok(Self {
             max_depth,
             min_samples_leaf,
+            min_samples_split,
+            max_leaf_nodes,
             fitted: None,
         })
     }
@@ -91,6 +117,8 @@ impl PyDecisionTreeRegressor {
         let d = PyDict::new(py);
         d.set_item("max_depth", self.max_depth)?;
         d.set_item("min_samples_leaf", self.min_samples_leaf)?;
+        d.set_item("min_samples_split", self.min_samples_split)?;
+        d.set_item("max_leaf_nodes", self.max_leaf_nodes)?;
         Ok(d)
     }
 
@@ -108,6 +136,8 @@ impl PyDecisionTreeRegressor {
                 match key.as_str() {
                     "max_depth" => this.max_depth = value.extract()?,
                     "min_samples_leaf" => this.min_samples_leaf = value.extract()?,
+                    "min_samples_split" => this.min_samples_split = value.extract()?,
+                    "max_leaf_nodes" => this.max_leaf_nodes = value.extract()?,
                     other => {
                         return Err(PyValueError::new_err(format!(
                             "invalid parameter {other:?} for estimator DecisionTreeRegressor"
@@ -220,6 +250,8 @@ impl PyDecisionTreeRegressor {
 pub struct PyDecisionTreeClassifier {
     max_depth: usize,
     min_samples_leaf: usize,
+    min_samples_split: usize,
+    max_leaf_nodes: Option<usize>,
     criterion: String,
     fitted: Option<DecisionTreeClassifier>,
 }
@@ -228,6 +260,8 @@ impl PyDecisionTreeClassifier {
     fn build(&self) -> DecisionTreeClassifier {
         DecisionTreeClassifier::new(self.max_depth)
             .with_min_samples_leaf(self.min_samples_leaf)
+            .with_min_samples_split(self.min_samples_split)
+            .with_max_leaf_nodes(self.max_leaf_nodes)
             .with_criterion(parse_criterion(&self.criterion).expect("validated"))
     }
 
@@ -244,6 +278,8 @@ impl PyDecisionTreeClassifier {
         Ok(Self {
             max_depth: m.max_depth(),
             min_samples_leaf: m.min_samples_leaf(),
+            min_samples_split: m.min_samples_split(),
+            max_leaf_nodes: m.max_leaf_nodes(),
             criterion: criterion_name(m.criterion()).to_string(),
             fitted: Some(m),
         })
@@ -259,14 +295,34 @@ impl PyDecisionTreeClassifier {
             .ok_or_else(|| PyAttributeError::new_err("n_features_in_ is not available before fit"))
     }
 
+    /// Each feature's share of the total impurity reduction. Raises AttributeError before fit,
+    /// and for a model loaded from a file written before importances were stored.
+    #[getter]
+    fn feature_importances_(&self) -> PyResult<Vec<f64>> {
+        self.fitted
+            .as_ref()
+            .and_then(|m| m.feature_importances())
+            .ok_or_else(|| {
+                PyAttributeError::new_err("feature_importances_ is not available for this model")
+            })
+    }
+
     /// Constructor parameters, as scikit-learn names them.
     #[new]
-    #[pyo3(signature = (max_depth=3, *, min_samples_leaf=1, criterion="gini"))]
-    fn new(max_depth: usize, min_samples_leaf: usize, criterion: &str) -> PyResult<Self> {
+    #[pyo3(signature = (max_depth=3, *, min_samples_leaf=1, min_samples_split=2, max_leaf_nodes=None, criterion="gini"))]
+    fn new(
+        max_depth: usize,
+        min_samples_leaf: usize,
+        min_samples_split: usize,
+        max_leaf_nodes: Option<usize>,
+        criterion: &str,
+    ) -> PyResult<Self> {
         parse_criterion(criterion)?;
         Ok(Self {
             max_depth,
             min_samples_leaf,
+            min_samples_split,
+            max_leaf_nodes,
             criterion: criterion.to_string(),
             fitted: None,
         })
@@ -279,6 +335,8 @@ impl PyDecisionTreeClassifier {
         let d = PyDict::new(py);
         d.set_item("max_depth", self.max_depth)?;
         d.set_item("min_samples_leaf", self.min_samples_leaf)?;
+        d.set_item("min_samples_split", self.min_samples_split)?;
+        d.set_item("max_leaf_nodes", self.max_leaf_nodes)?;
         d.set_item("criterion", self.criterion.as_str())?;
         Ok(d)
     }
@@ -297,6 +355,8 @@ impl PyDecisionTreeClassifier {
                 match key.as_str() {
                     "max_depth" => this.max_depth = value.extract()?,
                     "min_samples_leaf" => this.min_samples_leaf = value.extract()?,
+                    "min_samples_split" => this.min_samples_split = value.extract()?,
+                    "max_leaf_nodes" => this.max_leaf_nodes = value.extract()?,
                     "criterion" => this.criterion = value.extract()?,
                     other => {
                         return Err(PyValueError::new_err(format!(

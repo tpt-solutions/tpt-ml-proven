@@ -147,6 +147,8 @@ impl SupervisedEstimator for RandomForestRegressor {
         let limits = Limits {
             max_depth: self.max_depth,
             min_samples_leaf: self.min_samples_leaf,
+            min_samples_split: 2,
+            max_leaf_nodes: usize::MAX,
             max_features: per_split,
         };
         let mut rng = SplitMix64::new(self.seed);
@@ -155,7 +157,9 @@ impl SupervisedEstimator for RandomForestRegressor {
             let idx = bootstrap(rows, &mut rng);
             let boot_x = take_rows(&data, cols, &idx);
             let boot_y: Vec<f64> = idx.iter().map(|&i| targets[i]).collect();
-            trees.push(fit_tree(&boot_x, rows, cols, &boot_y, limits, &mut rng)?);
+            trees.push(
+                fit_tree(&boot_x, rows, cols, &boot_y, limits, &mut rng)?.without_importances(),
+            );
         }
         ensures!(trees.len() == self.n_estimators, "forest.estimators_fitted");
         self.fitted = Some((trees, cols));
@@ -296,6 +300,8 @@ impl SupervisedEstimator for RandomForestClassifier {
         let limits = Limits {
             max_depth: self.max_depth,
             min_samples_leaf: self.min_samples_leaf,
+            min_samples_split: 2,
+            max_leaf_nodes: usize::MAX,
             max_features: per_split,
         };
         let mut rng = SplitMix64::new(self.seed);
@@ -304,15 +310,18 @@ impl SupervisedEstimator for RandomForestClassifier {
             let idx = bootstrap(rows, &mut rng);
             let boot_x = take_rows(&data, cols, &idx);
             let boot_class: Vec<usize> = idx.iter().map(|&i| class_of[i]).collect();
-            trees.push(grow_classification_tree(
-                &boot_x,
-                cols,
-                &boot_class,
-                &classes,
-                limits,
-                self.criterion,
-                &mut rng,
-            ));
+            trees.push(
+                grow_classification_tree(
+                    &boot_x,
+                    cols,
+                    &boot_class,
+                    &classes,
+                    limits,
+                    self.criterion,
+                    &mut rng,
+                )
+                .without_importances(),
+            );
         }
         ensures!(
             trees.iter().all(|t| t.nodes.iter().all(|n| match n {

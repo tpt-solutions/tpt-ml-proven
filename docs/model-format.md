@@ -71,9 +71,24 @@ from.
 | `ONE_HOT_ENCODER` | 16 | `OneHotEncoder` |
 | `ORDINAL_ENCODER` | 17 | `OrdinalEncoder` |
 | `SIMPLE_IMPUTER` | 18 | `SimpleImputer` |
+| `DECISION_TREE_CLASSIFIER` | 19 | `DecisionTreeClassifier` (without the newer settings) |
+| `RANDOM_FOREST_REGRESSOR` | 20 | `RandomForestRegressor` |
+| `RANDOM_FOREST_CLASSIFIER` | 21 | `RandomForestClassifier` |
+| `GRADIENT_BOOSTING_SAMPLED` | 22 | `GradientBoostingRegressor` with subsampling or feature sampling |
+| `DBSCAN` | 23 | `Dbscan` |
+| `HDBSCAN` | 24 | `Hdbscan` |
+| `LOGISTIC_LABELLED` | 25 | `LogisticRegression` (binary), with the two labels it was trained on |
+| `DECISION_TREE_V2` | 26 | `DecisionTreeRegressor` with a split size, a leaf limit and importances |
+| `DECISION_TREE_CLASSIFIER_V2` | 27 | `DecisionTreeClassifier` with a split size, a leaf limit and importances |
 
 A model's payload starts with its parameters, then a flag for whether it is fitted, then the
 fitted state. A loaded model can be refitted with the same settings.
+
+A model that gains fields gets a new kind rather than a new version, so the files already written
+keep loading. Kinds 8 and 19 are the single trees without the newer settings, and kinds 26 and 27
+add the split size, the leaf limit, and the per-feature importances. A model that uses none of the
+newer settings is still written in the older kind, so loading and saving an older file leaves its
+bytes unchanged. Kinds 8 and 19 load with the defaults and without importances.
 
 ## Compatibility rules
 

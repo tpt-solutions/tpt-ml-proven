@@ -16,7 +16,7 @@ use tpt_ml_proven_core::{
 
 use tpt_ml_proven_core::rng::SplitMix64;
 
-use crate::tree::{choose_features, Limits, Node, Tree};
+use crate::tree::{choose_features, grow_best_first, partition_rows, Limits, Node, Split, Tree};
 
 /// How a node's impurity is measured.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -53,6 +53,8 @@ impl Criterion {
 pub struct DecisionTreeClassifier {
     pub(crate) max_depth: usize,
     pub(crate) min_samples_leaf: usize,
+    pub(crate) min_samples_split: usize,
+    pub(crate) max_leaf_nodes: Option<usize>,
     pub(crate) criterion: Criterion,
     pub(crate) fitted: Option<Fitted>,
 }
@@ -71,6 +73,8 @@ impl DecisionTreeClassifier {
         Self {
             max_depth,
             min_samples_leaf: 1,
+            min_samples_split: 2,
+            max_leaf_nodes: None,
             criterion: Criterion::Gini,
             fitted: None,
         }
@@ -79,6 +83,18 @@ impl DecisionTreeClassifier {
     /// Sets the minimum number of training rows in each leaf.
     pub fn with_min_samples_leaf(mut self, min_samples_leaf: usize) -> Self {
         self.min_samples_leaf = min_samples_leaf;
+        self
+    }
+
+    /// Sets the number of training rows a node needs before it may be split (default 2).
+    pub fn with_min_samples_split(mut self, min_samples_split: usize) -> Self {
+        self.min_samples_split = min_samples_split;
+        self
+    }
+
+    /// Limits the tree to this many leaves, grown best-first, or removes the limit with `None`.
+    pub fn with_max_leaf_nodes(mut self, max_leaf_nodes: Option<usize>) -> Self {
+        self.max_leaf_nodes = max_leaf_nodes;
         self
     }
 
@@ -101,6 +117,14 @@ impl DecisionTreeClassifier {
     /// Depth of the fitted tree, or `None` before `fit`.
     pub fn depth(&self) -> Option<usize> {
         self.fitted.as_ref().map(|f| f.tree.depth())
+    }
+
+    /// Each feature's share of the total impurity reduction, summing to one. `None` before `fit`,
+    /// and for a model loaded from a file written before importances were stored.
+    pub fn feature_importances(&self) -> Option<Vec<f64>> {
+        self.fitted
+            .as_ref()
+            .and_then(|f| f.tree.feature_importances())
     }
 
     /// Fraction of rows of `x` whose predicted label equals the label in `y`.
@@ -127,7 +151,12 @@ impl SupervisedEstimator for DecisionTreeClassifier {
         Y: TargetView<Elem = f64>,
     {
         self.fitted = None;
-        check_params(self.max_depth, self.min_samples_leaf)?;
+        check_params(
+            self.max_depth,
+            self.min_samples_leaf,
+            self.min_samples_split,
+            self.max_leaf_nodes,
+        )?;
         let (rows, cols) = (x.rows(), x.cols());
         if rows == 0 || cols == 0 {
             return Err(Error::EmptyInput);
@@ -175,6 +204,8 @@ impl SupervisedEstimator for DecisionTreeClassifier {
         let limits = Limits {
             max_depth: self.max_depth,
             min_samples_leaf: self.min_samples_leaf,
+            min_samples_split: self.min_samples_split,
+            max_leaf_nodes: self.max_leaf_nodes.unwrap_or(usize::MAX),
             max_features: usize::MAX,
         };
         let tree = grow_classification_tree(
@@ -236,7 +267,13 @@ impl Predictor for DecisionTreeClassifier {
     }
 }
 
-fn check_params(max_depth: usize, min_samples_leaf: usize) -> Result<(), Error> {
+/// Checks the settings a classifier is fitted with. Shared with the file reader.
+pub(crate) fn check_params(
+    max_depth: usize,
+    min_samples_leaf: usize,
+    min_samples_split: usize,
+    max_leaf_nodes: Option<usize>,
+) -> Result<(), Error> {
     if max_depth == 0 {
         return Err(Error::InvalidParameter {
             name: "max_depth",
@@ -247,6 +284,18 @@ fn check_params(max_depth: usize, min_samples_leaf: usize) -> Result<(), Error> 
         return Err(Error::InvalidParameter {
             name: "min_samples_leaf",
             reason: "must be at least 1",
+        });
+    }
+    if min_samples_split < 2 {
+        return Err(Error::InvalidParameter {
+            name: "min_samples_split",
+            reason: "must be at least 2",
+        });
+    }
+    if max_leaf_nodes.is_some_and(|k| k < 2) {
+        return Err(Error::InvalidParameter {
+            name: "max_leaf_nodes",
+            reason: "must be at least 2",
         });
     }
     Ok(())
@@ -284,7 +333,7 @@ fn majority(counts: &[usize]) -> usize {
 
 /// Grows one classification tree over `data` (`rows × cols`), whose rows have class indices
 /// `class_of` into the sorted `classes`. At each node only `limits.max_features` features are
-/// candidates, drawn from `rng`.
+/// candidates, drawn from `rng`. Grows best-first when `limits.max_leaf_nodes` is finite.
 pub(crate) fn grow_classification_tree(
     data: &[f64],
     cols: usize,
@@ -303,35 +352,40 @@ pub(crate) fn grow_classification_tree(
         limits,
         criterion,
     };
-    let mut nodes = Vec::new();
-    let mut depth = 0;
-    grow(
-        &ctx,
-        rng,
-        (0..class_of.len()).collect(),
-        0,
-        &mut nodes,
-        &mut depth,
-    );
+    let rows: Vec<usize> = (0..class_of.len()).collect();
+    let mut importances = vec![0.0; cols];
+    let (nodes, depth) = if limits.max_leaf_nodes == usize::MAX {
+        let mut nodes = Vec::new();
+        let mut depth = 0;
+        grow(&ctx, rng, rows, 0, &mut nodes, &mut depth, &mut importances);
+        (nodes, depth)
+    } else {
+        grow_best_first(
+            rows,
+            data,
+            cols,
+            limits.max_leaf_nodes,
+            &mut importances,
+            |idx, depth| evaluate(&ctx, rng, idx, depth),
+        )
+    };
     Tree {
         nodes,
         n_features: cols,
         depth,
+        importances,
     }
 }
 
-/// Grows the subtree for `idx` and returns the index of its root in `nodes`.
-fn grow(
+/// The leaf record for `idx` and, if the node may be split, its best split.
+fn evaluate(
     ctx: &Grow<'_>,
     rng: &mut SplitMix64,
-    idx: Vec<usize>,
+    idx: &[usize],
     depth: usize,
-    nodes: &mut Vec<Node>,
-    max_depth_seen: &mut usize,
-) -> usize {
+) -> (Node, Option<Split>) {
     let n = idx.len();
-    *max_depth_seen = (*max_depth_seen).max(depth);
-    let counts = class_counts(ctx, &idx);
+    let counts = class_counts(ctx, idx);
     let leaf_class = majority(&counts);
     let leaf = Node::Leaf {
         value: ctx.classes[leaf_class],
@@ -339,30 +393,62 @@ fn grow(
     };
     let parent = ctx.criterion.weighted_impurity(&counts, n);
     let can_split = depth < ctx.limits.max_depth
-        && n >= 2 * ctx.limits.min_samples_leaf
+        && n >= ctx.limits.split_threshold()
         && parent > 1e-12 * n as f64;
     let split = if can_split {
         let features = choose_features(ctx.cols, ctx.limits.max_features, rng);
-        best_split(ctx, &idx, parent, &features)
+        best_split(ctx, idx, parent, &features)
     } else {
         None
     };
-    let Some((feature, threshold)) = split else {
+    (leaf, split)
+}
+
+/// Grows the subtree for `idx` depth-first and returns the index of its root in `nodes`.
+fn grow(
+    ctx: &Grow<'_>,
+    rng: &mut SplitMix64,
+    idx: Vec<usize>,
+    depth: usize,
+    nodes: &mut Vec<Node>,
+    max_depth_seen: &mut usize,
+    importances: &mut [f64],
+) -> usize {
+    let n = idx.len();
+    *max_depth_seen = (*max_depth_seen).max(depth);
+    let (leaf, split) = evaluate(ctx, rng, &idx, depth);
+    let Some(split) = split else {
         let at = nodes.len();
         nodes.push(leaf);
         return at;
     };
+    importances[split.feature] += split.gain;
 
-    let (left_idx, right_idx): (Vec<usize>, Vec<usize>) = idx
-        .into_iter()
-        .partition(|&i| ctx.data[i * ctx.cols + feature] <= threshold);
+    let (left_idx, right_idx) =
+        partition_rows(idx, ctx.data, ctx.cols, split.feature, split.threshold);
     let at = nodes.len();
     nodes.push(leaf);
-    let left = grow(ctx, rng, left_idx, depth + 1, nodes, max_depth_seen);
-    let right = grow(ctx, rng, right_idx, depth + 1, nodes, max_depth_seen);
+    let left = grow(
+        ctx,
+        rng,
+        left_idx,
+        depth + 1,
+        nodes,
+        max_depth_seen,
+        importances,
+    );
+    let right = grow(
+        ctx,
+        rng,
+        right_idx,
+        depth + 1,
+        nodes,
+        max_depth_seen,
+        importances,
+    );
     nodes[at] = Node::Split {
-        feature,
-        threshold,
+        feature: split.feature,
+        threshold: split.threshold,
         left,
         right,
         count: n,
@@ -370,14 +456,10 @@ fn grow(
     at
 }
 
-/// The `(feature, threshold)` whose two children have the least weighted impurity, provided
-/// that does not exceed the unsplit node's. `None` if no valid split exists.
-fn best_split(
-    ctx: &Grow<'_>,
-    idx: &[usize],
-    parent: f64,
-    features: &[usize],
-) -> Option<(usize, f64)> {
+/// The split whose two children have the least weighted impurity, provided that does not
+/// exceed the unsplit node's. Its gain is the reduction in weighted impurity. `None` if no valid
+/// split exists.
+fn best_split(ctx: &Grow<'_>, idx: &[usize], parent: f64, features: &[usize]) -> Option<Split> {
     let n = idx.len();
     let total = class_counts(ctx, idx);
     let mut best_score = f64::INFINITY;
@@ -413,7 +495,16 @@ fn best_split(
     }
     // As in scikit-learn with min_impurity_decrease = 0, a zero-gain split is still taken, so
     // that XOR-like data reaches depth two. An impure node always gets its best valid split.
-    best.filter(|_| best_score <= parent + 1e-12 * (1.0 + parent.abs()))
+    let (feature, threshold) = best?;
+    if best_score <= parent + 1e-12 * (1.0 + parent.abs()) {
+        Some(Split {
+            feature,
+            threshold,
+            gain: (parent - best_score).max(0.0),
+        })
+    } else {
+        None
+    }
 }
 
 // ---------------------------------------------------------------- settings
@@ -427,6 +518,16 @@ impl DecisionTreeClassifier {
     /// Minimum rows per leaf the tree was configured with.
     pub fn min_samples_leaf(&self) -> usize {
         self.min_samples_leaf
+    }
+
+    /// Minimum rows a node needs before it may be split.
+    pub fn min_samples_split(&self) -> usize {
+        self.min_samples_split
+    }
+
+    /// The leaf limit the tree was configured with, or `None` for no limit.
+    pub fn max_leaf_nodes(&self) -> Option<usize> {
+        self.max_leaf_nodes
     }
 
     /// Impurity measure the tree was configured with.
@@ -531,6 +632,82 @@ mod tests {
             SupervisedEstimator::fit(&mut bad, DenseView::new(&x, 2, 1).unwrap(), &[0.0, 1.0][..]),
             Err(Error::InvalidParameter {
                 name: "max_depth",
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn min_samples_split_blocks_small_nodes() {
+        // Six rows, one split needed. A split threshold of 7 means the root may not split.
+        let x: Vec<f64> = (0..6).map(|i| i as f64).collect();
+        let y = [0.0_f64, 0.0, 0.0, 1.0, 1.0, 1.0];
+        let mut t = DecisionTreeClassifier::new(4).with_min_samples_split(7);
+        fit(&mut t, &x, 6, 1, &y);
+        assert_eq!(t.n_leaves(), Some(1));
+        let mut ok = DecisionTreeClassifier::new(4).with_min_samples_split(6);
+        fit(&mut ok, &x, 6, 1, &y);
+        assert_eq!(ok.n_leaves(), Some(2));
+    }
+
+    #[test]
+    fn max_leaf_nodes_caps_the_leaves_and_keeps_the_best_split() {
+        // Three classes in three bands of three rows on one feature. Both cuts give the same
+        // gain at the root, so the first (at 2.5) is taken. Each further leaf is then the best
+        // remaining split, which is how the tree reaches three perfectly classified leaves.
+        let x: Vec<f64> = (0..9).map(|i| i as f64).collect();
+        let y = [0.0_f64, 0.0, 0.0, 1.0, 1.0, 1.0, 2.0, 2.0, 2.0];
+        let mut t = DecisionTreeClassifier::new(10).with_max_leaf_nodes(Some(2));
+        fit(&mut t, &x, 9, 1, &y);
+        assert_eq!(t.n_leaves(), Some(2));
+        let mut more = DecisionTreeClassifier::new(10).with_max_leaf_nodes(Some(3));
+        fit(&mut more, &x, 9, 1, &y);
+        assert_eq!(more.n_leaves(), Some(3));
+        assert_eq!(
+            more.score(DenseView::new(&x, 9, 1).unwrap(), &y).unwrap(),
+            1.0
+        );
+    }
+
+    #[test]
+    fn importances_sum_to_one_and_ignore_the_noise_feature() {
+        // Feature 0 decides the class; feature 1 is constant, so it can never be split on.
+        let x: Vec<f64> = (0..12).flat_map(|i| [i as f64, 3.0]).collect();
+        let y: Vec<f64> = (0..12).map(|i| if i < 6 { 0.0 } else { 1.0 }).collect();
+        let mut t = DecisionTreeClassifier::new(3);
+        fit(&mut t, &x, 12, 2, &y);
+        let imp = t.feature_importances().unwrap();
+        assert!((imp.iter().sum::<f64>() - 1.0).abs() < 1e-12);
+        assert_eq!(imp, vec![1.0, 0.0]);
+    }
+
+    #[test]
+    fn a_tree_that_never_splits_has_zero_importances() {
+        let x = [1.0_f64, 2.0, 3.0];
+        let y = [5.0_f64, 5.0, 5.0];
+        let mut t = DecisionTreeClassifier::new(3);
+        fit(&mut t, &x, 3, 1, &y);
+        assert_eq!(t.feature_importances().unwrap(), vec![0.0]);
+        assert_eq!(DecisionTreeClassifier::new(3).feature_importances(), None);
+    }
+
+    #[test]
+    fn invalid_split_and_leaf_limits_are_rejected() {
+        let x = [0.0_f64, 1.0];
+        let y = [0.0_f64, 1.0];
+        let mut split = DecisionTreeClassifier::new(2).with_min_samples_split(1);
+        assert!(matches!(
+            SupervisedEstimator::fit(&mut split, DenseView::new(&x, 2, 1).unwrap(), &y[..]),
+            Err(Error::InvalidParameter {
+                name: "min_samples_split",
+                ..
+            })
+        ));
+        let mut leaves = DecisionTreeClassifier::new(2).with_max_leaf_nodes(Some(1));
+        assert!(matches!(
+            SupervisedEstimator::fit(&mut leaves, DenseView::new(&x, 2, 1).unwrap(), &y[..]),
+            Err(Error::InvalidParameter {
+                name: "max_leaf_nodes",
                 ..
             })
         ));

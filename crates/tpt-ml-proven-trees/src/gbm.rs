@@ -89,6 +89,8 @@ pub(crate) fn check_limits(max_depth: usize, min_samples_leaf: usize) -> Result<
 pub struct DecisionTreeRegressor {
     max_depth: usize,
     min_samples_leaf: usize,
+    min_samples_split: usize,
+    max_leaf_nodes: Option<usize>,
     fitted: Option<Tree>,
 }
 
@@ -98,6 +100,8 @@ impl DecisionTreeRegressor {
         Self {
             max_depth,
             min_samples_leaf: 1,
+            min_samples_split: 2,
+            max_leaf_nodes: None,
             fitted: None,
         }
     }
@@ -108,9 +112,27 @@ impl DecisionTreeRegressor {
         self
     }
 
+    /// Sets the number of training rows a node needs before it may be split (default 2).
+    pub fn with_min_samples_split(mut self, n: usize) -> Self {
+        self.min_samples_split = n;
+        self
+    }
+
+    /// Limits the tree to this many leaves, grown best-first, or removes the limit with `None`.
+    pub fn with_max_leaf_nodes(mut self, n: Option<usize>) -> Self {
+        self.max_leaf_nodes = n;
+        self
+    }
+
     /// The fitted tree, or `None` before `fit`.
     pub fn tree(&self) -> Option<&Tree> {
         self.fitted.as_ref()
+    }
+
+    /// Each feature's share of the total squared-error reduction, summing to one. `None` before
+    /// `fit`, and for a model loaded from a file written before importances were stored.
+    pub fn feature_importances(&self) -> Option<Vec<f64>> {
+        self.fitted.as_ref().and_then(Tree::feature_importances)
     }
 }
 
@@ -125,14 +147,28 @@ impl DecisionTreeRegressor {
         self.min_samples_leaf
     }
 
+    /// The minimum rows a node needs before it may be split.
+    pub fn min_samples_split(&self) -> usize {
+        self.min_samples_split
+    }
+
+    /// The leaf limit the model was configured with, or `None` for no limit.
+    pub fn max_leaf_nodes(&self) -> Option<usize> {
+        self.max_leaf_nodes
+    }
+
     pub(crate) fn from_parts(
         max_depth: usize,
         min_samples_leaf: usize,
+        min_samples_split: usize,
+        max_leaf_nodes: Option<usize>,
         fitted: Option<Tree>,
     ) -> Self {
         Self {
             max_depth,
             min_samples_leaf,
+            min_samples_split,
+            max_leaf_nodes,
             fitted,
         }
     }
@@ -148,7 +184,12 @@ impl SupervisedEstimator for DecisionTreeRegressor {
         Y: TargetView<Elem = f64>,
     {
         self.fitted = None;
-        check_limits(self.max_depth, self.min_samples_leaf)?;
+        crate::classifier::check_params(
+            self.max_depth,
+            self.min_samples_leaf,
+            self.min_samples_split,
+            self.max_leaf_nodes,
+        )?;
         let (data, targets, rows, cols) = read_xy(&x, &y)?;
         let tree = fit_tree(
             &data,
@@ -158,6 +199,8 @@ impl SupervisedEstimator for DecisionTreeRegressor {
             Limits {
                 max_depth: self.max_depth,
                 min_samples_leaf: self.min_samples_leaf,
+                min_samples_split: self.min_samples_split,
+                max_leaf_nodes: self.max_leaf_nodes.unwrap_or(usize::MAX),
                 max_features: usize::MAX,
             },
             &mut SplitMix64::new(0),
@@ -387,6 +430,8 @@ impl SupervisedEstimator for GradientBoostingRegressor {
         let limits = Limits {
             max_depth: self.max_depth,
             min_samples_leaf: self.min_samples_leaf,
+            min_samples_split: 2,
+            max_leaf_nodes: usize::MAX,
             max_features: self.max_features.map_or(usize::MAX, |m| m.min(cols)),
         };
         // Every row is used unless subsampling is on, which is the case the parity tests cover.
@@ -402,12 +447,12 @@ impl SupervisedEstimator for GradientBoostingRegressor {
             }
             let before = residual.iter().map(|r| r * r).sum::<f64>() / n;
             let tree = if full {
-                fit_tree(&data, rows, cols, &residual, limits, &mut rng)?
+                fit_tree(&data, rows, cols, &residual, limits, &mut rng)?.without_importances()
             } else {
                 let idx = sample_rows(rows, sample_size, &mut rng);
                 let sub_x = take_rows(&data, cols, &idx);
                 let sub_r: Vec<f64> = idx.iter().map(|&i| residual[i]).collect();
-                fit_tree(&sub_x, sample_size, cols, &sub_r, limits, &mut rng)?
+                fit_tree(&sub_x, sample_size, cols, &sub_r, limits, &mut rng)?.without_importances()
             };
             for i in 0..rows {
                 pred[i] += self.learning_rate * tree.predict_row(&data[i * cols..(i + 1) * cols]);

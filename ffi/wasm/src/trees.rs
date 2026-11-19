@@ -29,11 +29,13 @@ fn parse_criterion(text: &str) -> Result<Criterion, JsError> {
 
 /// A single CART regression tree.
 ///
-/// Options: `maxDepth` (3), `minSamplesLeaf` (1).
+/// Options: `maxDepth` (3), `minSamplesLeaf` (1), `minSamplesSplit` (2), `maxLeafNodes` (none).
 #[wasm_bindgen]
 pub struct DecisionTreeRegressorModel {
     max_depth: usize,
     min_samples_leaf: usize,
+    min_samples_split: usize,
+    max_leaf_nodes: Option<usize>,
     fitted: Option<DecisionTreeRegressor>,
 }
 
@@ -45,16 +47,30 @@ impl DecisionTreeRegressorModel {
         Ok(DecisionTreeRegressorModel {
             max_depth: o.usize_or("maxDepth", 3)?,
             min_samples_leaf: o.usize_or("minSamplesLeaf", 1)?,
+            min_samples_split: o.usize_or("minSamplesSplit", 2)?,
+            max_leaf_nodes: o.usize_opt("maxLeafNodes")?,
             fitted: None,
         })
+    }
+
+    /// Each feature's share of the total squared-error reduction, summing to one. Throws before
+    /// `fit`, and for a model loaded from a file written before importances were stored.
+    #[wasm_bindgen(getter, js_name = featureImportances)]
+    pub fn feature_importances(&self) -> Result<Vec<f64>, JsError> {
+        self.fitted
+            .as_ref()
+            .and_then(|m| m.feature_importances())
+            .ok_or_else(not_fitted)
     }
 
     /// Fits to a flat row-major matrix and a target with one value per row.
     pub fn fit(&mut self, data: &[f64], cols: usize, y: &[f64]) -> Result<(), JsError> {
         let v = view(data, cols)?;
         check_targets(y, v.rows())?;
-        let mut m =
-            DecisionTreeRegressor::new(self.max_depth).with_min_samples_leaf(self.min_samples_leaf);
+        let mut m = DecisionTreeRegressor::new(self.max_depth)
+            .with_min_samples_leaf(self.min_samples_leaf)
+            .with_min_samples_split(self.min_samples_split)
+            .with_max_leaf_nodes(self.max_leaf_nodes);
         SupervisedEstimator::fit(&mut m, v, y).map_err(js_err)?;
         self.fitted = Some(m);
         Ok(())
@@ -75,11 +91,14 @@ impl DecisionTreeRegressorModel {
 
 /// A single CART classification tree.
 ///
-/// Options: `maxDepth` (3), `minSamplesLeaf` (1), `criterion` (`"gini"` or `"entropy"`).
+/// Options: `maxDepth` (3), `minSamplesLeaf` (1), `minSamplesSplit` (2), `maxLeafNodes` (none),
+/// `criterion` (`"gini"` or `"entropy"`).
 #[wasm_bindgen]
 pub struct DecisionTreeClassifierModel {
     max_depth: usize,
     min_samples_leaf: usize,
+    min_samples_split: usize,
+    max_leaf_nodes: Option<usize>,
     criterion: Criterion,
     fitted: Option<DecisionTreeClassifier>,
 }
@@ -92,9 +111,21 @@ impl DecisionTreeClassifierModel {
         Ok(DecisionTreeClassifierModel {
             max_depth: o.usize_or("maxDepth", 3)?,
             min_samples_leaf: o.usize_or("minSamplesLeaf", 1)?,
+            min_samples_split: o.usize_or("minSamplesSplit", 2)?,
+            max_leaf_nodes: o.usize_opt("maxLeafNodes")?,
             criterion: parse_criterion(&o.str_or("criterion", "gini")?)?,
             fitted: None,
         })
+    }
+
+    /// Each feature's share of the total impurity reduction, summing to one. Throws before `fit`,
+    /// and for a model loaded from a file written before importances were stored.
+    #[wasm_bindgen(getter, js_name = featureImportances)]
+    pub fn feature_importances(&self) -> Result<Vec<f64>, JsError> {
+        self.fitted
+            .as_ref()
+            .and_then(|m| m.feature_importances())
+            .ok_or_else(not_fitted)
     }
 
     /// Fits to a flat row-major matrix and class labels.
@@ -103,6 +134,8 @@ impl DecisionTreeClassifierModel {
         check_targets(y, v.rows())?;
         let mut m = DecisionTreeClassifier::new(self.max_depth)
             .with_min_samples_leaf(self.min_samples_leaf)
+            .with_min_samples_split(self.min_samples_split)
+            .with_max_leaf_nodes(self.max_leaf_nodes)
             .with_criterion(self.criterion);
         SupervisedEstimator::fit(&mut m, v, y).map_err(js_err)?;
         self.fitted = Some(m);
@@ -346,6 +379,8 @@ impl DecisionTreeRegressorModel {
         Ok(DecisionTreeRegressorModel {
             max_depth: m.max_depth(),
             min_samples_leaf: m.min_samples_leaf(),
+            min_samples_split: m.min_samples_split(),
+            max_leaf_nodes: m.max_leaf_nodes(),
             fitted: Some(m),
         })
     }
@@ -370,6 +405,8 @@ impl DecisionTreeClassifierModel {
         Ok(DecisionTreeClassifierModel {
             max_depth: m.max_depth(),
             min_samples_leaf: m.min_samples_leaf(),
+            min_samples_split: m.min_samples_split(),
+            max_leaf_nodes: m.max_leaf_nodes(),
             criterion: m.criterion(),
             fitted: Some(m),
         })

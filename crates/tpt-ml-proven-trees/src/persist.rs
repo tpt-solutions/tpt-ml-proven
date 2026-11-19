@@ -9,7 +9,7 @@
 use tpt_ml_proven_core::error::Error;
 use tpt_ml_proven_core::persist::{dtype, kind, Reader, Writer};
 
-use crate::classifier::{Criterion, DecisionTreeClassifier, Fitted};
+use crate::classifier::{check_params, Criterion, DecisionTreeClassifier, Fitted};
 use crate::forest::{ForestFit, RandomForestClassifier, RandomForestRegressor};
 use crate::gbm::{Boosted, DecisionTreeRegressor, GradientBoostingRegressor};
 use crate::tree::{Node, Tree};
@@ -89,6 +89,7 @@ fn read_tree(r: &mut Reader<'_>) -> Result<Tree, Error> {
         nodes,
         n_features,
         depth,
+        importances: Vec::new(),
     };
     if tree.leaf_count_total() == 0 {
         return Err(invalid("tree has no training rows in its leaves"));
@@ -96,9 +97,54 @@ fn read_tree(r: &mut Reader<'_>) -> Result<Tree, Error> {
     Ok(tree)
 }
 
+/// The kind tag of a model file, read from its header. `None` if the bytes are too short.
+fn file_kind(bytes: &[u8]) -> Result<u32, Error> {
+    bytes
+        .get(12..16)
+        .map(|b| u32::from_le_bytes(b.try_into().expect("4 bytes")))
+        .ok_or_else(|| invalid("not a tree model file"))
+}
+
+/// The per-feature importances stored after a tree. Empty means none were stored.
+fn read_importances(r: &mut Reader<'_>, n_features: usize) -> Result<Vec<f64>, Error> {
+    let values = r.f64s()?;
+    if !values.is_empty() && values.len() != n_features {
+        return Err(invalid("tree importances do not match the feature count"));
+    }
+    if values.iter().any(|g| !g.is_finite() || *g < 0.0) {
+        return Err(invalid("tree importances are not finite and non-negative"));
+    }
+    Ok(values)
+}
+
 impl DecisionTreeRegressor {
-    /// Serialises the model to a model file.
+    /// Serialises the model to a model file. A model that uses none of the newer settings is
+    /// written in the older kind, so loading and saving an older file leaves its bytes unchanged.
     pub fn to_bytes(&self) -> Result<Vec<u8>, Error> {
+        let uses_new = self.min_samples_split() != 2
+            || self.max_leaf_nodes().is_some()
+            || self.tree().is_some_and(|t| !t.importances.is_empty());
+        if !uses_new {
+            return self.to_bytes_v1();
+        }
+        let mut w = Writer::with_dtype(kind::DECISION_TREE_V2, dtype::F64);
+        w.usize(self.max_depth());
+        w.usize(self.min_samples_leaf());
+        w.usize(self.min_samples_split());
+        w.usize(self.max_leaf_nodes().unwrap_or(0));
+        match self.tree() {
+            None => w.bool(false),
+            Some(t) => {
+                w.bool(true);
+                write_tree(&mut w, t);
+                w.f64s(&t.importances);
+            }
+        }
+        Ok(w.finish())
+    }
+
+    /// Writes the older kind 8 layout: depth, leaf size and the tree.
+    fn to_bytes_v1(&self) -> Result<Vec<u8>, Error> {
         let mut w = Writer::with_dtype(kind::DECISION_TREE, dtype::F64);
         w.usize(self.max_depth());
         w.usize(self.min_samples_leaf());
@@ -112,8 +158,45 @@ impl DecisionTreeRegressor {
         Ok(w.finish())
     }
 
-    /// Loads a model written by [`DecisionTreeRegressor::to_bytes`].
+    /// Loads a model written by [`DecisionTreeRegressor::to_bytes`]. Files written before the
+    /// leaf limit, the split size and the importances were stored load with the defaults.
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, Error> {
+        if file_kind(bytes)? == kind::DECISION_TREE {
+            return Self::from_bytes_v1(bytes);
+        }
+        let mut r = Reader::new(bytes, kind::DECISION_TREE_V2)?;
+        let max_depth = r.usize()?;
+        let min_samples_leaf = r.usize()?;
+        let min_samples_split = r.usize()?;
+        let max_leaf_nodes = match r.usize()? {
+            0 => None,
+            k => Some(k),
+        };
+        let tree = if r.bool()? {
+            let mut tree = read_tree(&mut r)?;
+            tree.importances = read_importances(&mut r, tree.n_features)?;
+            Some(tree)
+        } else {
+            None
+        };
+        r.finish()?;
+        check_params(
+            max_depth,
+            min_samples_leaf,
+            min_samples_split,
+            max_leaf_nodes,
+        )?;
+        Ok(DecisionTreeRegressor::from_parts(
+            max_depth,
+            min_samples_leaf,
+            min_samples_split,
+            max_leaf_nodes,
+            tree,
+        ))
+    }
+
+    /// Reads a kind 8 file: depth, leaf size and the tree, with no importances.
+    fn from_bytes_v1(bytes: &[u8]) -> Result<Self, Error> {
         let mut r = Reader::new(bytes, kind::DECISION_TREE)?;
         let max_depth = r.usize()?;
         let min_samples_leaf = r.usize()?;
@@ -129,6 +212,8 @@ impl DecisionTreeRegressor {
         Ok(DecisionTreeRegressor::from_parts(
             max_depth,
             min_samples_leaf,
+            2,
+            None,
             tree,
         ))
     }
@@ -243,8 +328,79 @@ impl GradientBoostingRegressor {
 // ---------------------------------------------------------------- classifier
 
 impl DecisionTreeClassifier {
-    /// Serialises the classifier (settings and fitted tree) to a model file.
+    /// Serialises the classifier (settings and fitted tree) to a model file. A classifier that
+    /// uses none of the newer settings is written in the older kind, so loading and saving an
+    /// older file leaves its bytes unchanged.
     pub fn to_bytes(&self) -> Result<Vec<u8>, Error> {
+        let uses_new = self.min_samples_split() != 2
+            || self.max_leaf_nodes().is_some()
+            || self
+                .fitted
+                .as_ref()
+                .is_some_and(|f| !f.tree.importances.is_empty());
+        if !uses_new {
+            return self.to_bytes_v1();
+        }
+        let mut w = Writer::for_float::<f64>(kind::DECISION_TREE_CLASSIFIER_V2);
+        w.usize(self.max_depth);
+        w.usize(self.min_samples_leaf);
+        w.usize(self.min_samples_split);
+        w.usize(self.max_leaf_nodes.unwrap_or(0));
+        w.bool(self.criterion == Criterion::Entropy);
+        match &self.fitted {
+            None => w.bool(false),
+            Some(f) => {
+                w.bool(true);
+                w.f64s(&f.classes);
+                write_tree(&mut w, &f.tree);
+                w.f64s(&f.tree.importances);
+            }
+        }
+        Ok(w.finish())
+    }
+
+    /// Loads a classifier written by [`DecisionTreeClassifier::to_bytes`]. Checks the settings,
+    /// that the class labels are sorted and distinct, and that every leaf predicts one of them.
+    /// Files written before the leaf limit, the split size and the importances were stored load
+    /// with the defaults.
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, Error> {
+        if file_kind(bytes)? == kind::DECISION_TREE_CLASSIFIER {
+            return Self::from_bytes_v1(bytes);
+        }
+        let mut r = Reader::new(bytes, kind::DECISION_TREE_CLASSIFIER_V2)?;
+        let max_depth = r.usize()?;
+        let min_samples_leaf = r.usize()?;
+        let min_samples_split = r.usize()?;
+        let max_leaf_nodes = match r.usize()? {
+            0 => None,
+            k => Some(k),
+        };
+        let criterion = if r.bool()? {
+            Criterion::Entropy
+        } else {
+            Criterion::Gini
+        };
+        let fitted = if r.bool()? {
+            let classes = r.f64s()?;
+            let mut tree = read_tree(&mut r)?;
+            tree.importances = read_importances(&mut r, tree.n_features)?;
+            Some(Fitted { tree, classes })
+        } else {
+            None
+        };
+        r.finish()?;
+        classifier_from_parts(ClassifierParts {
+            max_depth,
+            min_samples_leaf,
+            min_samples_split,
+            max_leaf_nodes,
+            criterion,
+            fitted,
+        })
+    }
+
+    /// Writes the older kind 19 layout: depth, leaf size, criterion, classes and tree.
+    fn to_bytes_v1(&self) -> Result<Vec<u8>, Error> {
         let mut w = Writer::for_float::<f64>(kind::DECISION_TREE_CLASSIFIER);
         w.usize(self.max_depth);
         w.usize(self.min_samples_leaf);
@@ -260,9 +416,8 @@ impl DecisionTreeClassifier {
         Ok(w.finish())
     }
 
-    /// Loads a classifier written by [`DecisionTreeClassifier::to_bytes`]. Checks the settings,
-    /// that the class labels are sorted and distinct, and that every leaf predicts one of them.
-    pub fn from_bytes(bytes: &[u8]) -> Result<Self, Error> {
+    /// Reads a kind 19 file: the depth, leaf size, criterion and tree, with no importances.
+    fn from_bytes_v1(bytes: &[u8]) -> Result<Self, Error> {
         let mut r = Reader::new(bytes, kind::DECISION_TREE_CLASSIFIER)?;
         let max_depth = r.usize()?;
         let min_samples_leaf = r.usize()?;
@@ -279,30 +434,57 @@ impl DecisionTreeClassifier {
             None
         };
         r.finish()?;
-        if max_depth == 0 || min_samples_leaf == 0 {
-            return Err(invalid("classifier depth and leaf size must be at least 1"));
-        }
-        if let Some(f) = &fitted {
-            if f.classes.is_empty() || f.classes.windows(2).any(|w| w[0] >= w[1]) {
-                return Err(invalid("classifier classes are not sorted and distinct"));
-            }
-            let known = f.tree.nodes.iter().all(|n| match n {
-                Node::Leaf { value, .. } => f.classes.contains(value),
-                Node::Split { .. } => true,
-            });
-            if !known {
-                return Err(invalid(
-                    "a classifier leaf predicts a label that was never seen",
-                ));
-            }
-        }
-        Ok(Self {
+        classifier_from_parts(ClassifierParts {
             max_depth,
             min_samples_leaf,
+            min_samples_split: 2,
+            max_leaf_nodes: None,
             criterion,
             fitted,
         })
     }
+}
+
+/// The stored parts of a classifier, before they are checked.
+struct ClassifierParts {
+    max_depth: usize,
+    min_samples_leaf: usize,
+    min_samples_split: usize,
+    max_leaf_nodes: Option<usize>,
+    criterion: Criterion,
+    fitted: Option<Fitted>,
+}
+
+/// Checks the stored parts of a classifier and builds it.
+fn classifier_from_parts(p: ClassifierParts) -> Result<DecisionTreeClassifier, Error> {
+    check_params(
+        p.max_depth,
+        p.min_samples_leaf,
+        p.min_samples_split,
+        p.max_leaf_nodes,
+    )?;
+    if let Some(f) = &p.fitted {
+        if f.classes.is_empty() || f.classes.windows(2).any(|w| w[0] >= w[1]) {
+            return Err(invalid("classifier classes are not sorted and distinct"));
+        }
+        let known = f.tree.nodes.iter().all(|n| match n {
+            Node::Leaf { value, .. } => f.classes.contains(value),
+            Node::Split { .. } => true,
+        });
+        if !known {
+            return Err(invalid(
+                "a classifier leaf predicts a label that was never seen",
+            ));
+        }
+    }
+    Ok(DecisionTreeClassifier {
+        max_depth: p.max_depth,
+        min_samples_leaf: p.min_samples_leaf,
+        min_samples_split: p.min_samples_split,
+        max_leaf_nodes: p.max_leaf_nodes,
+        criterion: p.criterion,
+        fitted: p.fitted,
+    })
 }
 
 // ---------------------------------------------------------------- forests

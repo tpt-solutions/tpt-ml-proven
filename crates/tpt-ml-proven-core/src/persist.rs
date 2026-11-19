@@ -103,6 +103,12 @@ pub mod kind {
     pub const HDBSCAN: u32 = 24;
     /// A binary `LogisticRegression` with the two labels it was trained on.
     pub const LOGISTIC_LABELLED: u32 = 25;
+    /// A `DecisionTreeRegressor` that stores its leaf limit, split size and feature importances.
+    /// Files of kind `DECISION_TREE` (8) remain readable.
+    pub const DECISION_TREE_V2: u32 = 26;
+    /// A `DecisionTreeClassifier` that stores its leaf limit, split size and feature importances.
+    /// Files of kind `DECISION_TREE_CLASSIFIER` (19) remain readable.
+    pub const DECISION_TREE_CLASSIFIER_V2: u32 = 27;
 }
 
 /// Header length of a version 1 file: magic, version, kind.
