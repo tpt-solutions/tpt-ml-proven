@@ -9,7 +9,8 @@
 //!   `GradientBoostingRegressor(loss="squared_error", subsample=1.0, max_features=None)`
 //!   on committed fixtures.
 //!
-//! The structural invariants are contracts (see `docs/contracts/trees.tptc`):
+//! The structural invariants are contracts (see `docs/contracts/decision-tree.tptc` and
+//! `docs/contracts/gradient-boosting.tptc`):
 //!
 //! * the leaves of every tree partition the training rows;
 //! * every tree respects `max_depth`;
