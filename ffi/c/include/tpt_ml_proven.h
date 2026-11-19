@@ -281,6 +281,14 @@ enum tpml_TpmlStatus tpml_kmeans_centers(const struct tpml_TpmlKMeans *h,
 enum tpml_TpmlStatus tpml_kmeans_inertia(const struct tpml_TpmlKMeans *h, double *out);
 
 /**
+ * Writes the number of Lloyd iterations the last fit used into `out`.
+ *
+ * # Safety
+ * `h` must be a live handle and `out` must be valid for one write.
+ */
+enum tpml_TpmlStatus tpml_kmeans_n_iter(const struct tpml_TpmlKMeans *h, uintptr_t *out);
+
+/**
  * Creates a PCA keeping `n_components` components. Free with `tpml_pca_free`.
  */
 struct tpml_TpmlPca *tpml_pca_new(uintptr_t n_components);
@@ -337,6 +345,21 @@ enum tpml_TpmlStatus tpml_pca_components(const struct tpml_TpmlPca *h,
 enum tpml_TpmlStatus tpml_pca_explained_variance(const struct tpml_TpmlPca *h,
                                                  double *out,
                                                  uintptr_t out_len);
+
+/**
+ * Maps `rows x n_components` scores back to the feature space, `rows x cols` into `out`.
+ * `cols` must equal `n_components`, and `out_len` must hold `rows` times the feature count.
+ *
+ * # Safety
+ * `h` must be a live handle, `z` valid for `rows * cols` reads, and `out` valid for `out_len`
+ * writes.
+ */
+enum tpml_TpmlStatus tpml_pca_inverse_transform(const struct tpml_TpmlPca *h,
+                                                const double *z,
+                                                uintptr_t rows,
+                                                uintptr_t cols,
+                                                double *out,
+                                                uintptr_t out_len);
 
 /**
  * Creates a DBSCAN estimator. Free it with `tpml_dbscan_free`. Returns null if `eps` is not

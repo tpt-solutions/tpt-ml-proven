@@ -270,6 +270,20 @@ func (km *KMeans) Inertia() (float64, error) {
 	return float64(out), nil
 }
 
+// NIter returns the number of Lloyd iterations the last Fit used.
+func (km *KMeans) NIter() (int, error) {
+	if km.h == nil {
+		return 0, ErrClosed
+	}
+	var out C.uintptr_t
+	if err := callC(func() C.enum_tpml_TpmlStatus {
+		return C.tpml_kmeans_n_iter(km.h, &out)
+	}); err != nil {
+		return 0, err
+	}
+	return int(out), nil
+}
+
 // ---------------------------------------------------------------- PCA
 
 // PCA is principal component analysis, in f64.
@@ -351,4 +365,26 @@ func (p *PCA) Components() ([][]float64, error) {
 		return nil, err
 	}
 	return unflatten(flat, p.cols), nil
+}
+
+// InverseTransform maps rows of scores (one column per component) back to the feature space.
+func (p *PCA) InverseTransform(z [][]float64) ([][]float64, error) {
+	if p.h == nil {
+		return nil, ErrClosed
+	}
+	if p.cols == 0 {
+		return nil, ErrNotFitted
+	}
+	data, rows, cols, err := flatten(z)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]float64, rows*p.cols)
+	if err := callC(func() C.enum_tpml_TpmlStatus {
+		return C.tpml_pca_inverse_transform(p.h, dataPtr(data), C.uintptr_t(rows), C.uintptr_t(cols), dataPtr(out), C.uintptr_t(len(out)))
+	}); err != nil {
+		return nil, err
+	}
+	runtime.KeepAlive(data)
+	return unflatten(out, p.cols), nil
 }

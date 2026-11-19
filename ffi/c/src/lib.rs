@@ -340,6 +340,21 @@ pub unsafe extern "C" fn tpml_kmeans_inertia(h: *const TpmlKMeans, out: *mut f64
     })
 }
 
+/// Writes the number of Lloyd iterations the last fit used into `out`.
+///
+/// # Safety
+/// `h` must be a live handle and `out` must be valid for one write.
+#[no_mangle]
+pub unsafe extern "C" fn tpml_kmeans_n_iter(h: *const TpmlKMeans, out: *mut usize) -> TpmlStatus {
+    run(|| {
+        let h = h
+            .as_ref()
+            .ok_or_else(|| Failure::new(TpmlStatus::NullPointer, "handle is null"))?;
+        let km = h.fitted.as_ref().ok_or(Error::NotFitted)?;
+        output(out, 1, &[km.n_iter().ok_or(Error::NotFitted)?])
+    })
+}
+
 // ---------------------------------------------------------------- PCA
 
 /// Opaque PCA handle.
@@ -464,6 +479,32 @@ pub unsafe extern "C" fn tpml_pca_explained_variance(
     })
 }
 
+/// Maps `rows x n_components` scores back to the feature space, `rows x cols` into `out`.
+/// `cols` must equal `n_components`, and `out_len` must hold `rows` times the feature count.
+///
+/// # Safety
+/// `h` must be a live handle, `z` valid for `rows * cols` reads, and `out` valid for `out_len`
+/// writes.
+#[no_mangle]
+pub unsafe extern "C" fn tpml_pca_inverse_transform(
+    h: *const TpmlPca,
+    z: *const f64,
+    rows: usize,
+    cols: usize,
+    out: *mut f64,
+    out_len: usize,
+) -> TpmlStatus {
+    run(|| {
+        let h = h
+            .as_ref()
+            .ok_or_else(|| Failure::new(TpmlStatus::NullPointer, "handle is null"))?;
+        let p = h.fitted.as_ref().ok_or(Error::NotFitted)?;
+        let slice = input(z, rows, cols)?;
+        let x = p.inverse_transform(&DenseView::new(slice, rows, cols)?)?;
+        output(out, out_len, &x.into_vec())
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -568,6 +609,44 @@ mod tests {
             );
             assert!(ev[0] > 0.0);
             tpml_pca_free(h);
+        }
+    }
+
+    #[test]
+    fn pca_inverse_transform_recovers_rank_one_data() {
+        // The second column is twice the first, so one component reconstructs every row.
+        let data = [1.0_f64, 2.0, 2.0, 4.0, 3.0, 6.0, 4.0, 8.0];
+        unsafe {
+            let h = tpml_pca_new(1);
+            assert_eq!(tpml_pca_fit(h, data.as_ptr(), 4, 2), TpmlStatus::Ok);
+            let mut z = [0.0_f64; 4];
+            assert_eq!(
+                tpml_pca_transform(h, data.as_ptr(), 4, 2, z.as_mut_ptr(), 4),
+                TpmlStatus::Ok
+            );
+            let mut back = [0.0_f64; 8];
+            assert_eq!(
+                tpml_pca_inverse_transform(h, z.as_ptr(), 4, 1, back.as_mut_ptr(), 8),
+                TpmlStatus::Ok
+            );
+            for (a, b) in back.iter().zip(data.iter()) {
+                assert!((a - b).abs() < 1e-9, "{a} != {b}");
+            }
+            tpml_pca_free(h);
+        }
+    }
+
+    #[test]
+    fn kmeans_n_iter_is_reported_after_fit() {
+        let data = [0.0_f64, 0.0, 0.1, 0.0, 10.0, 10.0, 10.1, 10.0];
+        unsafe {
+            let h = tpml_kmeans_new(2, 300, 1e-4, 1, 1);
+            let mut n = 0_usize;
+            assert_eq!(tpml_kmeans_n_iter(h, &mut n), TpmlStatus::NotFitted);
+            assert_eq!(tpml_kmeans_fit(h, data.as_ptr(), 4, 2), TpmlStatus::Ok);
+            assert_eq!(tpml_kmeans_n_iter(h, &mut n), TpmlStatus::Ok);
+            assert!(n >= 1, "n_iter was {n}");
+            tpml_kmeans_free(h);
         }
     }
 }
