@@ -1,0 +1,19 @@
+{
+  "name": "tpt-ml-proven",
+  "image": "mcr.microsoft.com/devcontainers/rust:1",
+  "features": {
+    "ghcr.io/devcontainers/features/python:1": { "version": "3.12" },
+    "ghcr.io/devcontainers/features/node:1": { "version": "22" },
+    "ghcr.io/devcontainers/features/go:1": {}
+  },
+  "postCreateCommand": "cargo fetch && python3 -m pip install --user maturin numpy scikit-learn==1.9.0 pytest && cargo install wasm-pack --locked && cargo install cbindgen --version 0.27.0 --locked",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "rust-lang.rust-analyzer",
+        "ms-python.python",
+        "golang.go"
+      ]
+    }
+  }
+}

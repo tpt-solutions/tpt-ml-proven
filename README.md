@@ -9,6 +9,38 @@ are linear and by runtime checks everywhere else.
 > and the bindings are in place. Release steps (publishing, tagging, the Go import path) are
 > not done.
 
+## Quickstart
+
+Nothing is published to a registry yet, so install from a checkout of this repository.
+
+Rust, in a crate that depends on `tpt-ml-proven` by path:
+
+```rust
+use tpt_ml_proven::prelude::*;
+
+let data = [0.0, 0.0, 0.1, 0.0, 10.0, 10.0, 10.1, 10.0];
+let x = DenseView::new(&data, 4, 2).unwrap();
+let mut km = KMeans::<f64>::new(2).with_seed(1);
+UnsupervisedEstimator::fit(&mut km, x).unwrap();
+let labels = Predictor::predict(&km, DenseView::new(&data, 4, 2).unwrap()).unwrap();
+```
+
+Python, after `maturin develop --release` in `ffi/python`:
+
+```python
+from tpt_ml_proven import KMeans
+
+labels = KMeans(2, seed=1).fit(X).labels_   # X is a 2-D NumPy array
+```
+
+JavaScript, after `node scripts/build.mjs` in `ffi/wasm`:
+
+```js
+const km = new KMeansModel({ nClusters: 2, seed: 1 });
+km.fit(new Float64Array([0, 0, 0.1, 0, 10, 10, 10.1, 10]), 2);
+const labels = km.labels;
+```
+
 ## Algorithms
 
 | Crate | Estimators |
@@ -18,7 +50,7 @@ are linear and by runtime checks everywhere else.
 | [`tpt-ml-proven-linear`](crates/tpt-ml-proven-linear/README.md) | Ridge, Lasso, ElasticNet, logistic regression (binary and multinomial) |
 | [`tpt-ml-proven-preprocessing`](crates/tpt-ml-proven-preprocessing/README.md) | StandardScaler, MinMaxScaler, RobustScaler, OneHotEncoder, OrdinalEncoder, SimpleImputer |
 | [`tpt-ml-proven-ensemble`](crates/tpt-ml-proven-ensemble/README.md) | StumpForest |
-| [`tpt-ml-proven-trees`](crates/tpt-ml-proven-trees/README.md) | DecisionTreeRegressor, GradientBoostingRegressor |
+| [`tpt-ml-proven-trees`](crates/tpt-ml-proven-trees/README.md) | DecisionTreeRegressor, DecisionTreeClassifier, GradientBoostingRegressor, RandomForestRegressor, RandomForestClassifier |
 
 Each estimator's contract is in [docs/contracts/](docs/contracts/README.md). Parity with
 scikit-learn is recorded in [docs/parity.md](docs/parity.md).
@@ -46,19 +78,19 @@ kind, little-endian fields and a checksum. Readers refuse newer versions and any
 contents don't fit the model's invariants. Golden files from version 1 are committed and
 tested on every run.
 
-The Rust crates read and write model files. The bindings do not expose this yet.
+The Rust crates, the Python package and the WebAssembly package read and write model files.
+The C and Go bindings do not expose them yet.
 
 ## Bindings
 
 | Directory | Binding | What it covers |
 | --- | --- | --- |
-| [`ffi/python`](ffi/python/README.md) | Python (PyO3, abi3 wheels) | KMeans, PCA and the Phase 8 estimators |
-| [`ffi/wasm`](ffi/wasm/README.md) | WebAssembly (wasm-bindgen) | KMeans, PCA and the Phase 8 estimators |
-| [`ffi/c`](ffi/c) | C ABI (cbindgen header) | KMeans, PCA and all the Phase 8 estimators |
-| [`ffi/go`](ffi/go/README.md) | Go (cgo over the C ABI) | KMeans and PCA |
+| [`ffi/python`](ffi/python/README.md) | Python (PyO3, abi3 wheels) | Every estimator and transformer, with model files |
+| [`ffi/wasm`](ffi/wasm/README.md) | WebAssembly (wasm-bindgen) | Every estimator and transformer, with model files; single precision for KMeans and PCA |
+| [`ffi/c`](ffi/c) | C ABI (cbindgen header) | Every estimator and transformer; single precision for KMeans and PCA |
+| [`ffi/go`](ffi/go/README.md) | Go (cgo over the C ABI) | Clustering, decomposition, the linear models and StumpForest; single precision for KMeans and PCA. Trees and transformers are not wrapped yet |
 
-The preprocessing transformers and the tree models are not yet exposed in any binding. See
-[docs/usage.md](docs/usage.md) for examples of each binding.
+See [docs/usage.md](docs/usage.md) for examples of each binding.
 
 ## Documentation
 
