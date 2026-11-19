@@ -337,6 +337,15 @@ impl<F: Float> TruncatedSvd<F> {
     }
 }
 
+// ---------------------------------------------------------------- settings
+
+impl<F: Float> TruncatedSvd<F> {
+    /// The number of components the model was configured to keep.
+    pub fn n_components(&self) -> usize {
+        self.n_components
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

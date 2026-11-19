@@ -445,6 +445,35 @@ impl<F: Float> Nmf<F> {
     }
 }
 
+// ---------------------------------------------------------------- settings
+
+impl<F: Float> Nmf<F> {
+    /// The number of components the model was configured with.
+    pub fn n_components(&self) -> usize {
+        self.n_components
+    }
+
+    /// The iteration limit the model was configured with.
+    pub fn max_iter(&self) -> usize {
+        self.max_iter
+    }
+
+    /// The convergence tolerance the model was configured with.
+    pub fn tol(&self) -> f64 {
+        self.tol
+    }
+
+    /// The seed the model was configured with.
+    pub fn seed(&self) -> u64 {
+        self.seed
+    }
+
+    /// The starting factors `(W, H)` the model was configured with, if any.
+    pub fn initial_factors(&self) -> Option<(Vec<f64>, Vec<f64>)> {
+        self.init.clone()
+    }
+}
+
 #[cfg(test)]
 mod persist_tests {
     use super::*;

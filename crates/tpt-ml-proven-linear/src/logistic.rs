@@ -342,6 +342,25 @@ impl<F: Float> Default for LogisticRegression<F> {
     }
 }
 
+// ---------------------------------------------------------------- settings
+
+impl<F: Float> LogisticRegression<F> {
+    /// The inverse regularisation strength the model was configured with.
+    pub fn c(&self) -> f64 {
+        self.c
+    }
+
+    /// The iteration limit the model was configured with.
+    pub fn max_iter(&self) -> usize {
+        self.max_iter
+    }
+
+    /// The convergence tolerance the model was configured with.
+    pub fn tol(&self) -> f64 {
+        self.tol
+    }
+}
+
 #[cfg(test)]
 mod persist_tests {
     use super::*;

@@ -888,6 +888,35 @@ impl<F: Float> KMeans<F> {
     }
 }
 
+// ---------------------------------------------------------------- settings
+
+impl<F: Float> KMeans<F> {
+    /// The iteration limit the model was configured with.
+    pub fn max_iter(&self) -> usize {
+        self.max_iter
+    }
+
+    /// The convergence tolerance the model was configured with.
+    pub fn tol(&self) -> f64 {
+        self.tol
+    }
+
+    /// The initialisation strategy the model was configured with.
+    pub fn init(&self) -> Init {
+        self.init
+    }
+
+    /// The seed the model was configured with.
+    pub fn seed(&self) -> u64 {
+        self.seed
+    }
+
+    /// The thread count the model was configured with.
+    pub fn threads(&self) -> usize {
+        self.threads
+    }
+}
+
 #[cfg(test)]
 mod persist_tests {
     use super::*;

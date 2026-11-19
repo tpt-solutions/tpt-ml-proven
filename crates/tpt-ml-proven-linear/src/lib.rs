@@ -585,6 +585,54 @@ impl<F: Float> Default for ElasticNet<F> {
     }
 }
 
+// ---------------------------------------------------------------- settings
+
+impl<F: Float> Ridge<F> {
+    /// The penalty the model was configured with.
+    pub fn alpha(&self) -> f64 {
+        self.alpha
+    }
+}
+
+impl<F: Float> ElasticNet<F> {
+    /// The penalty the model was configured with.
+    pub fn alpha(&self) -> f64 {
+        self.alpha
+    }
+
+    /// The L1 share the model was configured with.
+    pub fn l1_ratio(&self) -> f64 {
+        self.l1_ratio
+    }
+
+    /// The iteration limit the model was configured with.
+    pub fn max_iter(&self) -> usize {
+        self.max_iter
+    }
+
+    /// The convergence tolerance the model was configured with.
+    pub fn tol(&self) -> f64 {
+        self.tol
+    }
+}
+
+impl<F: Float> Lasso<F> {
+    /// The penalty the model was configured with.
+    pub fn alpha(&self) -> f64 {
+        self.0.alpha
+    }
+
+    /// The iteration limit the model was configured with.
+    pub fn max_iter(&self) -> usize {
+        self.0.max_iter
+    }
+
+    /// The convergence tolerance the model was configured with.
+    pub fn tol(&self) -> f64 {
+        self.0.tol
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

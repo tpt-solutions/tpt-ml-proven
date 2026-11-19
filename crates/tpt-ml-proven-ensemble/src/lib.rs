@@ -348,6 +348,20 @@ impl<F: Float> Default for StumpForest<F> {
     }
 }
 
+// ---------------------------------------------------------------- settings
+
+impl<F: Float> StumpForest<F> {
+    /// The number of stumps the model was configured to grow.
+    pub fn n_estimators_setting(&self) -> usize {
+        self.n_estimators
+    }
+
+    /// The seed the model was configured with.
+    pub fn seed(&self) -> u64 {
+        self.seed
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
