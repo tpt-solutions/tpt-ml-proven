@@ -397,7 +397,7 @@ pub unsafe extern "C" fn tpml_nmf_components(
     run(|| {
         let h = h.as_ref().ok_or_else(null_handle)?;
         let m = h.fitted.as_ref().ok_or(Error::NotFitted)?;
-        output(out, out_len, m.components().unwrap_or(&[]))
+        output(out, out_len, m.components().map_or(&[][..], |d| d.as_slice()))
     })
 }
 

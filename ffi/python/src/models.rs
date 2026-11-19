@@ -11,7 +11,7 @@ use pyo3::prelude::*;
 use tpt_ml_proven_clustering::{Dbscan, Hdbscan};
 use tpt_ml_proven_core::error::Error;
 use tpt_ml_proven_core::{
-    DenseView, Predictor, SupervisedEstimator, Transformer, UnsupervisedEstimator,
+    ArrayView, DenseView, Predictor, SupervisedEstimator, Transformer, UnsupervisedEstimator,
 };
 use tpt_ml_proven_decomposition::{Nmf, TruncatedSvd};
 use tpt_ml_proven_ensemble::StumpForest;
@@ -193,7 +193,9 @@ impl PyTruncatedSvd {
     #[getter]
     fn components_(&self) -> PyResult<Vec<Vec<f64>>> {
         let m = self.fitted.as_ref().ok_or_else(not_fitted)?;
-        Ok(m.components().unwrap_or_default())
+        let d = m.components().ok_or_else(not_fitted)?;
+        let cols = d.cols().max(1);
+        Ok(d.as_slice().chunks(cols).map(<[f64]>::to_vec).collect())
     }
 
     /// Singular values, largest first.
@@ -265,7 +267,7 @@ impl PyNmf {
     #[getter]
     fn components_(&self) -> PyResult<Vec<Vec<f64>>> {
         let m = self.fitted.as_ref().ok_or_else(not_fitted)?;
-        let h = m.components().unwrap_or(&[]);
+        let h = m.components().map_or(&[][..], |d| d.as_slice());
         let cols = if self.n_components == 0 {
             0
         } else {

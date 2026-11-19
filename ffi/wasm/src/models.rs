@@ -228,7 +228,7 @@ impl NmfModel {
     #[wasm_bindgen(getter)]
     pub fn components(&self) -> Result<Vec<f64>, JsError> {
         let m = self.fitted.as_ref().ok_or_else(not_fitted)?;
-        Ok(m.components().unwrap_or(&[]).to_vec())
+        Ok(m.components().map_or(Vec::new(), |d| d.as_slice().to_vec()))
     }
 
     /// Multiplicative-update iterations used.
