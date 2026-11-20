@@ -188,16 +188,17 @@ Each item gets: crate code, `.tptc` contract, scikit-learn parity fixtures, FFI 
 ## Phase 13 — Sparse-aware algorithms
 - [x] `ArrayView::for_each_nonzero` and `CsrView::row`; `all_finite` over non-zeros only
 - [x] TruncatedSvd Gram and transform from non-zeros (the explained variance uses them too)
-- [ ] KMeans sparse distances via precomputed centre norms; no full densify when parallel. Open: the fused, parallel kernel is shared with Phase 14, and a new distance formula would move the 1e-9 parity results, so it needs its own measured change
-- [ ] Done: Ridge, ElasticNet and Lasso with implicit centring, from the non-zeros only (the `ArrayView::is_sparse` path). Lasso's own optimality check still copies the matrix. Done: NMF sparse `X·Hᵀ` and `WᵀX`, and the error from the non-zeros; DBSCAN and HDBSCAN read sparse rows and measure distances over their non-zeros
-- [ ] Property tests: sparse and dense results agree for every touched estimator. Done for TruncatedSvd and NMF (`decomposition/tests/sparse.rs`), for Ridge, ElasticNet and Lasso (`linear/tests/sparse.rs`), and for DBSCAN and HDBSCAN (`clustering/tests/sparse.rs`). Open for KMeans only, whose sparse distance needs its own measured change (see the item above)
+- [x] KMeans sparse distances via precomputed centre norms. Done as a separate sequential sparse pass, so the dense results are unchanged and no dense copy is made. Measured in `docs/benchmarks.md`: faster than dense below about 3% density, and smaller storage below about 50%. The sparse pass does not use the parallel kernel, which stays Phase 14 work
+- [x] Done: Ridge, ElasticNet and Lasso with implicit centring from the non-zeros (the `ArrayView::is_sparse` path), and Lasso's optimality check uses the same statistics. NMF sparse `X·Hᵀ`, `WᵀX` and the error come from the non-zeros. DBSCAN and HDBSCAN read sparse rows and measure distances over their non-zeros
+- [ ] Property tests: sparse and dense results agree for every touched estimator. Done for TruncatedSvd and NMF (`decomposition/tests/sparse.rs`), for Ridge, ElasticNet and Lasso (`linear/tests/sparse.rs`), for DBSCAN and HDBSCAN, and for KMeans (both in `clustering/tests/sparse.rs`). Every estimator listed in Phase 13 is covered
 
 ## Phase 14 — KMeans speed
-- [ ] Register-blocked kernel (one row against 4 centres, one horizontal reduce per centre)
-- [ ] Argmin on `‖c‖²−2x·c`, centre norms per iteration, inertia computed directly (keep 1e-9 parity)
-- [ ] Move `lo`/`hi` hull tracking out of the hot loop
-- [ ] `u32` labels, in-pass change count, reused per-chunk buffers
-- [ ] Re-measure and record in `docs/benchmarks.md`, including if the 2× target is still missed (Hamerly and runtime AVX2 already rejected; do not retry)
+**Closed: the 2× target is not met.** On a quiet machine, one thread is 1.13× slower than scikit-learn (minimum of five interleaved rounds), and all cores are level within noise. The kernel experiments (argmin, four-centre blocking, AVX2 lanes over centres, AVX2 accumulation over coordinates) were slower or gave no gain, and are recorded in docs/benchmarks.md. Items below that are still unchecked are deferred: they are not being pursued unless single-thread speed becomes a priority.
+- [x] Register-blocked kernel (one row against 4 centres, one horizontal reduce per centre). Tried: 2.78 s against 1.34 s, rejected. See `docs/benchmarks.md`
+- [x] Argmin on `‖c‖²−2x·c`, centre norms per iteration, inertia computed directly (keep 1e-9 parity). Tried: 1.44 s against 1.34 s, and slower still without the exact distance, rejected. See `docs/benchmarks.md`
+- [ ] Deferred: move `lo`/`hi` hull tracking out of the hot loop. Measured at about 13% of the single-thread time. It stays for now, because it backs the `kmeans.centers_in_hull` contract, which needs a runtime check. Open: a cheaper check with the same guarantee
+- [ ] Deferred: `u32` labels, in-pass change count, reused per-chunk buffers (expected gain a few percent)
+- [x] Re-measure and record in `docs/benchmarks.md`, including if the 2× target is still missed. Recorded on a quiet machine: one thread 1.13× slower than scikit-learn (min), all cores level within noise; the 2× target is not met. Kernel experiments and the interleaved table are in docs/benchmarks.md (Hamerly and runtime AVX2 already rejected; do not retry)
 
 ## Phase 15 — Trees: classification, forests, subsampling
 - [ ] Make `trees` generic over `Float`
