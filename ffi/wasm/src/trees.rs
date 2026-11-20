@@ -177,6 +177,8 @@ pub struct GradientBoostingRegressorModel {
     learning_rate: f64,
     max_depth: usize,
     min_samples_leaf: usize,
+    min_samples_split: usize,
+    max_leaf_nodes: Option<usize>,
     subsample: f64,
     max_features: Option<usize>,
     seed: u64,
@@ -185,6 +187,16 @@ pub struct GradientBoostingRegressorModel {
 
 #[wasm_bindgen]
 impl GradientBoostingRegressorModel {
+    /// Each feature's share of the total squared-error reduction over all rounds. Throws before
+    /// `fit`, and for a model loaded from a file written before importances were stored.
+    #[wasm_bindgen(getter, js_name = featureImportances)]
+    pub fn feature_importances(&self) -> Result<Vec<f64>, JsError> {
+        self.fitted
+            .as_ref()
+            .and_then(|m| m.feature_importances())
+            .ok_or_else(not_fitted)
+    }
+
     #[wasm_bindgen(constructor)]
     pub fn new(options: Option<JsValue>) -> Result<GradientBoostingRegressorModel, JsError> {
         let o = Options::new(options)?;
@@ -193,6 +205,8 @@ impl GradientBoostingRegressorModel {
             learning_rate: o.f64_or("learningRate", 0.1)?,
             max_depth: o.usize_or("maxDepth", 3)?,
             min_samples_leaf: o.usize_or("minSamplesLeaf", 1)?,
+            min_samples_split: o.usize_or("minSamplesSplit", 2)?,
+            max_leaf_nodes: o.usize_opt("maxLeafNodes")?,
             subsample: o.f64_or("subsample", 1.0)?,
             max_features: o.usize_opt("maxFeatures")?,
             seed: o.seed_or("seed", 0)?,
@@ -207,6 +221,8 @@ impl GradientBoostingRegressorModel {
         let mut m = GradientBoostingRegressor::new(self.n_estimators, self.max_depth)
             .with_learning_rate(self.learning_rate)
             .with_min_samples_leaf(self.min_samples_leaf)
+            .with_min_samples_split(self.min_samples_split)
+            .with_max_leaf_nodes(self.max_leaf_nodes)
             .with_subsample(self.subsample)
             .with_seed(self.seed);
         if let Some(f) = self.max_features {
@@ -240,6 +256,8 @@ pub struct RandomForestRegressorModel {
     n_estimators: usize,
     max_depth: usize,
     min_samples_leaf: usize,
+    min_samples_split: usize,
+    max_leaf_nodes: Option<usize>,
     max_features: Option<usize>,
     seed: u64,
     fitted: Option<RandomForestRegressor>,
@@ -247,6 +265,16 @@ pub struct RandomForestRegressorModel {
 
 #[wasm_bindgen]
 impl RandomForestRegressorModel {
+    /// Each feature's share of the total impurity reduction, averaged over the trees. Throws
+    /// before `fit`, and for a model loaded from a file written before importances were stored.
+    #[wasm_bindgen(getter, js_name = featureImportances)]
+    pub fn feature_importances(&self) -> Result<Vec<f64>, JsError> {
+        self.fitted
+            .as_ref()
+            .and_then(|m| m.feature_importances())
+            .ok_or_else(not_fitted)
+    }
+
     #[wasm_bindgen(constructor)]
     pub fn new(options: Option<JsValue>) -> Result<RandomForestRegressorModel, JsError> {
         let o = Options::new(options)?;
@@ -254,6 +282,8 @@ impl RandomForestRegressorModel {
             n_estimators: o.usize_or("nEstimators", 100)?,
             max_depth: o.usize_or("maxDepth", 10)?,
             min_samples_leaf: o.usize_or("minSamplesLeaf", 1)?,
+            min_samples_split: o.usize_or("minSamplesSplit", 2)?,
+            max_leaf_nodes: o.usize_opt("maxLeafNodes")?,
             max_features: o.usize_opt("maxFeatures")?,
             seed: o.seed_or("seed", 0)?,
             fitted: None,
@@ -266,6 +296,8 @@ impl RandomForestRegressorModel {
         check_targets(y, v.rows())?;
         let mut m = RandomForestRegressor::new(self.n_estimators, self.max_depth)
             .with_min_samples_leaf(self.min_samples_leaf)
+            .with_min_samples_split(self.min_samples_split)
+            .with_max_leaf_nodes(self.max_leaf_nodes)
             .with_seed(self.seed);
         if let Some(f) = self.max_features {
             m = m.with_max_features(f);
@@ -297,6 +329,8 @@ pub struct RandomForestClassifierModel {
     n_estimators: usize,
     max_depth: usize,
     min_samples_leaf: usize,
+    min_samples_split: usize,
+    max_leaf_nodes: Option<usize>,
     criterion: Criterion,
     max_features: Option<usize>,
     seed: u64,
@@ -305,6 +339,16 @@ pub struct RandomForestClassifierModel {
 
 #[wasm_bindgen]
 impl RandomForestClassifierModel {
+    /// Each feature's share of the total impurity reduction, averaged over the trees. Throws
+    /// before `fit`, and for a model loaded from a file written before importances were stored.
+    #[wasm_bindgen(getter, js_name = featureImportances)]
+    pub fn feature_importances(&self) -> Result<Vec<f64>, JsError> {
+        self.fitted
+            .as_ref()
+            .and_then(|m| m.feature_importances())
+            .ok_or_else(not_fitted)
+    }
+
     #[wasm_bindgen(constructor)]
     pub fn new(options: Option<JsValue>) -> Result<RandomForestClassifierModel, JsError> {
         let o = Options::new(options)?;
@@ -312,6 +356,8 @@ impl RandomForestClassifierModel {
             n_estimators: o.usize_or("nEstimators", 100)?,
             max_depth: o.usize_or("maxDepth", 10)?,
             min_samples_leaf: o.usize_or("minSamplesLeaf", 1)?,
+            min_samples_split: o.usize_or("minSamplesSplit", 2)?,
+            max_leaf_nodes: o.usize_opt("maxLeafNodes")?,
             criterion: parse_criterion(&o.str_or("criterion", "gini")?)?,
             max_features: o.usize_opt("maxFeatures")?,
             seed: o.seed_or("seed", 0)?,
@@ -325,6 +371,8 @@ impl RandomForestClassifierModel {
         check_targets(y, v.rows())?;
         let mut m = RandomForestClassifier::new(self.n_estimators, self.max_depth)
             .with_min_samples_leaf(self.min_samples_leaf)
+            .with_min_samples_split(self.min_samples_split)
+            .with_max_leaf_nodes(self.max_leaf_nodes)
             .with_criterion(self.criterion)
             .with_seed(self.seed);
         if let Some(f) = self.max_features {
@@ -434,6 +482,8 @@ impl GradientBoostingRegressorModel {
             learning_rate: m.learning_rate(),
             max_depth: m.max_depth(),
             min_samples_leaf: m.min_samples_leaf(),
+            min_samples_split: m.min_samples_split(),
+            max_leaf_nodes: m.max_leaf_nodes(),
             subsample: m.subsample(),
             max_features: m.max_features(),
             seed: m.seed(),
@@ -462,6 +512,8 @@ impl RandomForestRegressorModel {
             n_estimators: m.n_estimators_setting(),
             max_depth: m.max_depth(),
             min_samples_leaf: m.min_samples_leaf(),
+            min_samples_split: m.min_samples_split(),
+            max_leaf_nodes: m.max_leaf_nodes(),
             max_features: m.max_features(),
             seed: m.seed(),
             fitted: Some(m),
@@ -489,6 +541,8 @@ impl RandomForestClassifierModel {
             n_estimators: m.n_estimators_setting(),
             max_depth: m.max_depth(),
             min_samples_leaf: m.min_samples_leaf(),
+            min_samples_split: m.min_samples_split(),
+            max_leaf_nodes: m.max_leaf_nodes(),
             criterion: m.criterion(),
             max_features: m.max_features(),
             seed: m.seed(),

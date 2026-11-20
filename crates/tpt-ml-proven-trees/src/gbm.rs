@@ -66,22 +66,6 @@ fn read_rows<X: ArrayView<Elem = f64>>(x: &X, n_features: usize) -> Result<Vec<f
     Ok(out)
 }
 
-pub(crate) fn check_limits(max_depth: usize, min_samples_leaf: usize) -> Result<(), Error> {
-    if max_depth == 0 {
-        return Err(Error::InvalidParameter {
-            name: "max_depth",
-            reason: "must be at least 1",
-        });
-    }
-    if min_samples_leaf == 0 {
-        return Err(Error::InvalidParameter {
-            name: "min_samples_leaf",
-            reason: "must be at least 1",
-        });
-    }
-    Ok(())
-}
-
 // ---------------------------------------------------------------- single tree
 
 /// A single CART regression tree.
@@ -236,6 +220,8 @@ pub struct GradientBoostingRegressor {
     learning_rate: f64,
     max_depth: usize,
     min_samples_leaf: usize,
+    min_samples_split: usize,
+    max_leaf_nodes: Option<usize>,
     subsample: f64,
     max_features: Option<usize>,
     seed: u64,
@@ -250,6 +236,9 @@ pub(crate) struct Boosted {
     pub(crate) n_features: usize,
     pub(crate) train_loss: Vec<f64>,
     pub(crate) learning_rate: f64,
+    /// Each feature's share of the total squared-error reduction over all rounds, summing to one.
+    /// Empty for a model loaded from a file written before importances were stored.
+    pub(crate) importances: Vec<f64>,
 }
 
 impl GradientBoostingRegressor {
@@ -261,11 +250,45 @@ impl GradientBoostingRegressor {
             learning_rate: 0.1,
             max_depth,
             min_samples_leaf: 1,
+            min_samples_split: 2,
+            max_leaf_nodes: None,
             subsample: 1.0,
             max_features: None,
             seed: 0,
             fitted: None,
         }
+    }
+
+    /// Sets the number of rows a node needs before it may be split in each tree (default 2).
+    pub fn with_min_samples_split(mut self, n: usize) -> Self {
+        self.min_samples_split = n;
+        self
+    }
+
+    /// Limits each tree to this many leaves, grown best-first, or removes the limit with `None`.
+    pub fn with_max_leaf_nodes(mut self, n: Option<usize>) -> Self {
+        self.max_leaf_nodes = n;
+        self
+    }
+
+    /// Each feature's share of the total squared-error reduction over all rounds, summing to one.
+    /// `None` before `fit`, and for a model loaded from a file written before importances were
+    /// stored.
+    pub fn feature_importances(&self) -> Option<Vec<f64>> {
+        self.fitted
+            .as_ref()
+            .filter(|b| !b.importances.is_empty())
+            .map(|b| b.importances.clone())
+    }
+
+    /// Minimum rows a node needs before it may be split, in each tree.
+    pub fn min_samples_split(&self) -> usize {
+        self.min_samples_split
+    }
+
+    /// The leaf limit of each tree, or `None` for no limit.
+    pub fn max_leaf_nodes(&self) -> Option<usize> {
+        self.max_leaf_nodes
     }
 
     /// Fraction of rows each round is fitted on, in `(0, 1]` (default 1.0: every row). Below
@@ -362,6 +385,8 @@ impl GradientBoostingRegressor {
         learning_rate: f64,
         max_depth: usize,
         min_samples_leaf: usize,
+        min_samples_split: usize,
+        max_leaf_nodes: Option<usize>,
         sampling: (f64, Option<usize>, u64),
         fitted: Option<Boosted>,
     ) -> Self {
@@ -370,6 +395,8 @@ impl GradientBoostingRegressor {
             learning_rate,
             max_depth,
             min_samples_leaf,
+            min_samples_split,
+            max_leaf_nodes,
             subsample: sampling.0,
             max_features: sampling.1,
             seed: sampling.2,
@@ -403,7 +430,12 @@ impl SupervisedEstimator for GradientBoostingRegressor {
                 reason: "must be in (0, 1]",
             });
         }
-        check_limits(self.max_depth, self.min_samples_leaf)?;
+        crate::classifier::check_params(
+            self.max_depth,
+            self.min_samples_leaf,
+            self.min_samples_split,
+            self.max_leaf_nodes,
+        )?;
         let (data, targets, rows, cols) = read_xy(&x, &y)?;
         requires!(rows >= 1, "gbm.rows_positive");
         requires!(self.n_estimators >= 1, "gbm.estimators_positive");
@@ -430,8 +462,8 @@ impl SupervisedEstimator for GradientBoostingRegressor {
         let limits = Limits {
             max_depth: self.max_depth,
             min_samples_leaf: self.min_samples_leaf,
-            min_samples_split: 2,
-            max_leaf_nodes: usize::MAX,
+            min_samples_split: self.min_samples_split,
+            max_leaf_nodes: self.max_leaf_nodes.unwrap_or(usize::MAX),
             max_features: self.max_features.map_or(usize::MAX, |m| m.min(cols)),
         };
         // Every row is used unless subsampling is on, which is the case the parity tests cover.
@@ -441,19 +473,25 @@ impl SupervisedEstimator for GradientBoostingRegressor {
         let mut trees = Vec::with_capacity(self.n_estimators);
         let mut train_loss = Vec::with_capacity(self.n_estimators);
         let mut residual = vec![0.0; rows];
+        let mut gains = vec![0.0; cols];
         for _ in 0..self.n_estimators {
             for i in 0..rows {
                 residual[i] = targets[i] - pred[i];
             }
             let before = residual.iter().map(|r| r * r).sum::<f64>() / n;
-            let tree = if full {
-                fit_tree(&data, rows, cols, &residual, limits, &mut rng)?.without_importances()
+            let grown = if full {
+                fit_tree(&data, rows, cols, &residual, limits, &mut rng)?
             } else {
                 let idx = sample_rows(rows, sample_size, &mut rng);
                 let sub_x = take_rows(&data, cols, &idx);
                 let sub_r: Vec<f64> = idx.iter().map(|&i| residual[i]).collect();
-                fit_tree(&sub_x, sample_size, cols, &sub_r, limits, &mut rng)?.without_importances()
+                fit_tree(&sub_x, sample_size, cols, &sub_r, limits, &mut rng)?
             };
+            // The importances are the sums over rounds, normalised once at the end.
+            for (g, v) in gains.iter_mut().zip(&grown.importances) {
+                *g += v;
+            }
+            let tree = grown.without_importances();
             for i in 0..rows {
                 pred[i] += self.learning_rate * tree.predict_row(&data[i * cols..(i + 1) * cols]);
             }
@@ -474,12 +512,19 @@ impl SupervisedEstimator for GradientBoostingRegressor {
             train_loss.push(after);
             trees.push(tree);
         }
+        let total: f64 = gains.iter().sum();
+        let importances = if total > 0.0 {
+            gains.iter().map(|g| g / total).collect()
+        } else {
+            vec![0.0; cols]
+        };
         self.fitted = Some(Boosted {
             init,
             trees,
             n_features: cols,
             train_loss,
             learning_rate: self.learning_rate,
+            importances,
         });
         Ok(())
     }

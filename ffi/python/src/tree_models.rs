@@ -479,6 +479,8 @@ pub struct PyGradientBoostingRegressor {
     learning_rate: f64,
     max_depth: usize,
     min_samples_leaf: usize,
+    min_samples_split: usize,
+    max_leaf_nodes: Option<usize>,
     subsample: f64,
     max_features: Option<usize>,
     seed: u64,
@@ -491,6 +493,8 @@ impl PyGradientBoostingRegressor {
             let mut m = GradientBoostingRegressor::new(self.n_estimators, self.max_depth)
                 .with_learning_rate(self.learning_rate)
                 .with_min_samples_leaf(self.min_samples_leaf)
+                .with_min_samples_split(self.min_samples_split)
+                .with_max_leaf_nodes(self.max_leaf_nodes)
                 .with_subsample(self.subsample)
                 .with_seed(self.seed);
             if let Some(f) = self.max_features {
@@ -515,6 +519,8 @@ impl PyGradientBoostingRegressor {
             learning_rate: m.learning_rate(),
             max_depth: m.max_depth(),
             min_samples_leaf: m.min_samples_leaf(),
+            min_samples_split: m.min_samples_split(),
+            max_leaf_nodes: m.max_leaf_nodes(),
             subsample: m.subsample(),
             max_features: m.max_features(),
             seed: m.seed(),
@@ -535,14 +541,29 @@ impl PyGradientBoostingRegressor {
         .ok_or_else(|| PyAttributeError::new_err("n_features_in_ is not available before fit"))
     }
 
+    /// Each feature's share of the total squared-error reduction over all rounds. Raises
+    /// AttributeError before fit, and for a model loaded from a file written before importances
+    /// were stored.
+    #[getter]
+    fn feature_importances_(&self) -> PyResult<Vec<f64>> {
+        self.fitted
+            .as_ref()
+            .and_then(|m| m.feature_importances())
+            .ok_or_else(|| {
+                PyAttributeError::new_err("feature_importances_ is not available for this model")
+            })
+    }
+
     /// Constructor parameters, as scikit-learn names them.
     #[new]
-    #[pyo3(signature = (n_estimators=100, *, learning_rate=0.1, max_depth=3, min_samples_leaf=1, subsample=1.0, max_features=None, seed=0))]
+    #[pyo3(signature = (n_estimators=100, *, learning_rate=0.1, max_depth=3, min_samples_leaf=1, min_samples_split=2, max_leaf_nodes=None, subsample=1.0, max_features=None, seed=0))]
     fn new(
         n_estimators: usize,
         learning_rate: f64,
         max_depth: usize,
         min_samples_leaf: usize,
+        min_samples_split: usize,
+        max_leaf_nodes: Option<usize>,
         subsample: f64,
         max_features: Option<usize>,
         seed: u64,
@@ -552,6 +573,8 @@ impl PyGradientBoostingRegressor {
             learning_rate,
             max_depth,
             min_samples_leaf,
+            min_samples_split,
+            max_leaf_nodes,
             subsample,
             max_features,
             seed,
@@ -568,6 +591,8 @@ impl PyGradientBoostingRegressor {
         d.set_item("learning_rate", self.learning_rate)?;
         d.set_item("max_depth", self.max_depth)?;
         d.set_item("min_samples_leaf", self.min_samples_leaf)?;
+        d.set_item("min_samples_split", self.min_samples_split)?;
+        d.set_item("max_leaf_nodes", self.max_leaf_nodes)?;
         d.set_item("subsample", self.subsample)?;
         d.set_item("max_features", self.max_features)?;
         d.set_item("seed", self.seed)?;
@@ -590,6 +615,8 @@ impl PyGradientBoostingRegressor {
                     "learning_rate" => this.learning_rate = value.extract()?,
                     "max_depth" => this.max_depth = value.extract()?,
                     "min_samples_leaf" => this.min_samples_leaf = value.extract()?,
+                    "min_samples_split" => this.min_samples_split = value.extract()?,
+                    "max_leaf_nodes" => this.max_leaf_nodes = value.extract()?,
                     "subsample" => this.subsample = value.extract()?,
                     "max_features" => this.max_features = value.extract()?,
                     "seed" => this.seed = value.extract()?,
@@ -706,6 +733,8 @@ pub struct PyRandomForestRegressor {
     n_estimators: usize,
     max_depth: usize,
     min_samples_leaf: usize,
+    min_samples_split: usize,
+    max_leaf_nodes: Option<usize>,
     max_features: Option<usize>,
     seed: u64,
     fitted: Option<RandomForestRegressor>,
@@ -716,6 +745,8 @@ impl PyRandomForestRegressor {
         {
             let mut m = RandomForestRegressor::new(self.n_estimators, self.max_depth)
                 .with_min_samples_leaf(self.min_samples_leaf)
+                .with_min_samples_split(self.min_samples_split)
+                .with_max_leaf_nodes(self.max_leaf_nodes)
                 .with_seed(self.seed);
             if let Some(f) = self.max_features {
                 m = m.with_max_features(f);
@@ -738,6 +769,8 @@ impl PyRandomForestRegressor {
             n_estimators: m.n_estimators_setting(),
             max_depth: m.max_depth(),
             min_samples_leaf: m.min_samples_leaf(),
+            min_samples_split: m.min_samples_split(),
+            max_leaf_nodes: m.max_leaf_nodes(),
             max_features: m.max_features(),
             seed: m.seed(),
             fitted: Some(m),
@@ -747,6 +780,19 @@ impl PyRandomForestRegressor {
 
 #[pymethods]
 impl PyRandomForestRegressor {
+    /// Each feature's share of the total impurity reduction, averaged over the trees. Raises
+    /// AttributeError before fit, and for a model loaded from a file written before importances
+    /// were stored.
+    #[getter]
+    fn feature_importances_(&self) -> PyResult<Vec<f64>> {
+        self.fitted
+            .as_ref()
+            .and_then(|m| m.feature_importances())
+            .ok_or_else(|| {
+                PyAttributeError::new_err("feature_importances_ is not available for this model")
+            })
+    }
+
     /// Number of features seen in `fit`. Raises AttributeError before fit, as scikit-learn does.
     #[getter]
     fn n_features_in_(&self) -> PyResult<usize> {
@@ -756,11 +802,13 @@ impl PyRandomForestRegressor {
 
     /// Constructor parameters, as scikit-learn names them.
     #[new]
-    #[pyo3(signature = (n_estimators=100, *, max_depth=10, min_samples_leaf=1, max_features=None, seed=0))]
+    #[pyo3(signature = (n_estimators=100, *, max_depth=10, min_samples_leaf=1, min_samples_split=2, max_leaf_nodes=None, max_features=None, seed=0))]
     fn new(
         n_estimators: usize,
         max_depth: usize,
         min_samples_leaf: usize,
+        min_samples_split: usize,
+        max_leaf_nodes: Option<usize>,
         max_features: Option<usize>,
         seed: u64,
     ) -> PyResult<Self> {
@@ -768,6 +816,8 @@ impl PyRandomForestRegressor {
             n_estimators,
             max_depth,
             min_samples_leaf,
+            min_samples_split,
+            max_leaf_nodes,
             max_features,
             seed,
             fitted: None,
@@ -782,6 +832,8 @@ impl PyRandomForestRegressor {
         d.set_item("n_estimators", self.n_estimators)?;
         d.set_item("max_depth", self.max_depth)?;
         d.set_item("min_samples_leaf", self.min_samples_leaf)?;
+        d.set_item("min_samples_split", self.min_samples_split)?;
+        d.set_item("max_leaf_nodes", self.max_leaf_nodes)?;
         d.set_item("max_features", self.max_features)?;
         d.set_item("seed", self.seed)?;
         Ok(d)
@@ -802,6 +854,8 @@ impl PyRandomForestRegressor {
                     "n_estimators" => this.n_estimators = value.extract()?,
                     "max_depth" => this.max_depth = value.extract()?,
                     "min_samples_leaf" => this.min_samples_leaf = value.extract()?,
+                    "min_samples_split" => this.min_samples_split = value.extract()?,
+                    "max_leaf_nodes" => this.max_leaf_nodes = value.extract()?,
                     "max_features" => this.max_features = value.extract()?,
                     "seed" => this.seed = value.extract()?,
                     other => {
@@ -917,6 +971,8 @@ pub struct PyRandomForestClassifier {
     n_estimators: usize,
     max_depth: usize,
     min_samples_leaf: usize,
+    min_samples_split: usize,
+    max_leaf_nodes: Option<usize>,
     criterion: String,
     max_features: Option<usize>,
     seed: u64,
@@ -928,6 +984,8 @@ impl PyRandomForestClassifier {
         {
             let mut m = RandomForestClassifier::new(self.n_estimators, self.max_depth)
                 .with_min_samples_leaf(self.min_samples_leaf)
+                .with_min_samples_split(self.min_samples_split)
+                .with_max_leaf_nodes(self.max_leaf_nodes)
                 .with_criterion(parse_criterion(&self.criterion).expect("validated"))
                 .with_seed(self.seed);
             if let Some(f) = self.max_features {
@@ -951,6 +1009,8 @@ impl PyRandomForestClassifier {
             n_estimators: m.n_estimators_setting(),
             max_depth: m.max_depth(),
             min_samples_leaf: m.min_samples_leaf(),
+            min_samples_split: m.min_samples_split(),
+            max_leaf_nodes: m.max_leaf_nodes(),
             criterion: criterion_name(m.criterion()).to_string(),
             max_features: m.max_features(),
             seed: m.seed(),
@@ -968,13 +1028,28 @@ impl PyRandomForestClassifier {
             .ok_or_else(|| PyAttributeError::new_err("n_features_in_ is not available before fit"))
     }
 
+    /// Each feature's share of the total impurity reduction, averaged over the trees. Raises
+    /// AttributeError before fit, and for a model loaded from a file written before importances
+    /// were stored.
+    #[getter]
+    fn feature_importances_(&self) -> PyResult<Vec<f64>> {
+        self.fitted
+            .as_ref()
+            .and_then(|m| m.feature_importances())
+            .ok_or_else(|| {
+                PyAttributeError::new_err("feature_importances_ is not available for this model")
+            })
+    }
+
     /// Constructor parameters, as scikit-learn names them.
     #[new]
-    #[pyo3(signature = (n_estimators=100, *, max_depth=10, min_samples_leaf=1, criterion="gini", max_features=None, seed=0))]
+    #[pyo3(signature = (n_estimators=100, *, max_depth=10, min_samples_leaf=1, min_samples_split=2, max_leaf_nodes=None, criterion="gini", max_features=None, seed=0))]
     fn new(
         n_estimators: usize,
         max_depth: usize,
         min_samples_leaf: usize,
+        min_samples_split: usize,
+        max_leaf_nodes: Option<usize>,
         criterion: &str,
         max_features: Option<usize>,
         seed: u64,
@@ -984,6 +1059,8 @@ impl PyRandomForestClassifier {
             n_estimators,
             max_depth,
             min_samples_leaf,
+            min_samples_split,
+            max_leaf_nodes,
             criterion: criterion.to_string(),
             max_features,
             seed,
@@ -999,6 +1076,8 @@ impl PyRandomForestClassifier {
         d.set_item("n_estimators", self.n_estimators)?;
         d.set_item("max_depth", self.max_depth)?;
         d.set_item("min_samples_leaf", self.min_samples_leaf)?;
+        d.set_item("min_samples_split", self.min_samples_split)?;
+        d.set_item("max_leaf_nodes", self.max_leaf_nodes)?;
         d.set_item("criterion", self.criterion.as_str())?;
         d.set_item("max_features", self.max_features)?;
         d.set_item("seed", self.seed)?;
@@ -1020,6 +1099,8 @@ impl PyRandomForestClassifier {
                     "n_estimators" => this.n_estimators = value.extract()?,
                     "max_depth" => this.max_depth = value.extract()?,
                     "min_samples_leaf" => this.min_samples_leaf = value.extract()?,
+                    "min_samples_split" => this.min_samples_split = value.extract()?,
+                    "max_leaf_nodes" => this.max_leaf_nodes = value.extract()?,
                     "criterion" => this.criterion = value.extract()?,
                     "max_features" => this.max_features = value.extract()?,
                     "seed" => this.seed = value.extract()?,

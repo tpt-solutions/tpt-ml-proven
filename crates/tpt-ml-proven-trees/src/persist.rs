@@ -220,13 +220,25 @@ impl DecisionTreeRegressor {
 }
 
 impl GradientBoostingRegressor {
-    /// Serialises the model to a model file. Writes the sampling settings too, under kind 22.
+    /// Serialises the model to a model file. A model that uses none of the newer settings is
+    /// written in kind 22, as before, so loading and saving such a file leaves its bytes unchanged.
     pub fn to_bytes(&self) -> Result<Vec<u8>, Error> {
-        let mut w = Writer::with_dtype(kind::GRADIENT_BOOSTING_SAMPLED, dtype::F64);
+        let uses_new = self.min_samples_split() != 2
+            || self.max_leaf_nodes().is_some()
+            || self.boosted().is_some_and(|b| !b.importances.is_empty());
+        let mut w = if uses_new {
+            Writer::with_dtype(kind::GRADIENT_BOOSTING_V2, dtype::F64)
+        } else {
+            Writer::with_dtype(kind::GRADIENT_BOOSTING_SAMPLED, dtype::F64)
+        };
         w.usize(self.n_estimators());
         w.f64(self.learning_rate());
         w.usize(self.max_depth());
         w.usize(self.min_samples_leaf());
+        if uses_new {
+            w.usize(self.min_samples_split());
+            w.usize(self.max_leaf_nodes().unwrap_or(0));
+        }
         w.f64(self.subsample());
         match self.max_features() {
             None => w.bool(false),
@@ -247,6 +259,9 @@ impl GradientBoostingRegressor {
                 for t in &b.trees {
                     write_tree(&mut w, t);
                 }
+                if uses_new {
+                    w.f64s(&b.importances);
+                }
             }
         }
         Ok(w.finish())
@@ -254,13 +269,17 @@ impl GradientBoostingRegressor {
 
     /// Loads a model written by [`GradientBoostingRegressor::to_bytes`]. Files written before
     /// the sampling settings existed (kind 9) load with the defaults: every row, every feature,
-    /// seed 0.
+    /// seed 0. Files without the split size, leaf limit and importances (kind 22) load with those
+    /// at their defaults.
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, Error> {
-        let sampled = matches!(
-            bytes.get(12..16).map(|b| u32::from_le_bytes(b.try_into().expect("4 bytes"))),
-            Some(k) if k == kind::GRADIENT_BOOSTING_SAMPLED
-        );
-        let tag = if sampled {
+        let file_kind = bytes
+            .get(12..16)
+            .map(|b| u32::from_le_bytes(b.try_into().expect("4 bytes")));
+        let v2 = file_kind == Some(kind::GRADIENT_BOOSTING_V2);
+        let sampled = v2 || file_kind == Some(kind::GRADIENT_BOOSTING_SAMPLED);
+        let tag = if v2 {
+            kind::GRADIENT_BOOSTING_V2
+        } else if sampled {
             kind::GRADIENT_BOOSTING_SAMPLED
         } else {
             kind::GRADIENT_BOOSTING
@@ -270,6 +289,16 @@ impl GradientBoostingRegressor {
         let learning_rate = r.f64()?;
         let max_depth = r.usize()?;
         let min_samples_leaf = r.usize()?;
+        let (min_samples_split, max_leaf_nodes) = if v2 {
+            let split = r.usize()?;
+            let leaves = match r.usize()? {
+                0 => None,
+                k => Some(k),
+            };
+            (split, leaves)
+        } else {
+            (2, None)
+        };
         let (subsample, max_features, seed) = if sampled {
             let subsample = r.f64()?;
             let max_features = if r.bool()? { Some(r.usize()?) } else { None };
@@ -291,12 +320,18 @@ impl GradientBoostingRegressor {
                     "gradient boosting trees disagree on the feature count",
                 ));
             }
+            let importances = if v2 {
+                read_importances(&mut r, n_features)?
+            } else {
+                Vec::new()
+            };
             Some(Boosted {
                 init,
                 trees,
                 n_features,
                 train_loss,
                 learning_rate,
+                importances,
             })
         } else {
             None
@@ -308,6 +343,12 @@ impl GradientBoostingRegressor {
         if n_estimators == 0 || max_depth == 0 || min_samples_leaf == 0 {
             return Err(invalid("gradient boosting parameters must be at least 1"));
         }
+        crate::classifier::check_params(
+            max_depth,
+            min_samples_leaf,
+            min_samples_split,
+            max_leaf_nodes,
+        )?;
         if !(subsample > 0.0 && subsample <= 1.0) {
             return Err(invalid("gradient boosting subsample is outside (0, 1]"));
         }
@@ -319,6 +360,8 @@ impl GradientBoostingRegressor {
             learning_rate,
             max_depth,
             min_samples_leaf,
+            min_samples_split,
+            max_leaf_nodes,
             (subsample, max_features, seed),
             boosted,
         ))
@@ -557,9 +600,19 @@ fn read_forest_trees(
 }
 
 impl RandomForestRegressor {
-    /// Serialises the forest (settings and fitted trees) to a model file.
+    /// Serialises the forest (settings and fitted trees) to a model file. A forest that uses none
+    /// of the newer settings is written in the older kind, so loading and saving it leaves its
+    /// bytes unchanged.
     pub fn to_bytes(&self) -> Result<Vec<u8>, Error> {
-        let mut w = Writer::for_float::<f64>(kind::RANDOM_FOREST_REGRESSOR);
+        let uses_new = self.min_samples_split != 2
+            || self.max_leaf_nodes.is_some()
+            || !self.importances.is_empty();
+        let tag = if uses_new {
+            kind::RANDOM_FOREST_REGRESSOR_V2
+        } else {
+            kind::RANDOM_FOREST_REGRESSOR
+        };
+        let mut w = Writer::for_float::<f64>(tag);
         write_forest_settings(
             &mut w,
             self.n_estimators,
@@ -568,6 +621,10 @@ impl RandomForestRegressor {
             self.max_features,
             self.seed,
         );
+        if uses_new {
+            w.usize(self.min_samples_split);
+            w.usize(self.max_leaf_nodes.unwrap_or(0));
+        }
         match &self.fitted {
             None => w.bool(false),
             Some((trees, n_features)) => {
@@ -577,39 +634,87 @@ impl RandomForestRegressor {
                 for t in trees {
                     write_tree(&mut w, t);
                 }
+                if uses_new {
+                    w.f64s(&self.importances);
+                }
             }
         }
         Ok(w.finish())
     }
 
-    /// Loads a forest written by [`RandomForestRegressor::to_bytes`].
+    /// Loads a forest written by [`RandomForestRegressor::to_bytes`]. Files written before the
+    /// split size, the leaf limit and the importances were stored load with the defaults.
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, Error> {
-        let mut r = Reader::new(bytes, kind::RANDOM_FOREST_REGRESSOR)?;
+        let v2 = file_kind(bytes)? == kind::RANDOM_FOREST_REGRESSOR_V2;
+        let mut r = Reader::new(
+            bytes,
+            if v2 {
+                kind::RANDOM_FOREST_REGRESSOR_V2
+            } else {
+                kind::RANDOM_FOREST_REGRESSOR
+            },
+        )?;
         let (n_estimators, max_depth, min_samples_leaf, max_features, seed) =
             read_forest_settings(&mut r)?;
+        let (min_samples_split, max_leaf_nodes) = if v2 {
+            let split = r.usize()?;
+            let leaves = match r.usize()? {
+                0 => None,
+                k => Some(k),
+            };
+            (split, leaves)
+        } else {
+            (2, None)
+        };
+        let mut importances = Vec::new();
         let fitted = if r.bool()? {
             let n_features = r.usize()?;
             let trees = read_forest_trees(&mut r, n_estimators, n_features)?;
+            if v2 {
+                importances = read_importances(&mut r, n_features)?;
+            }
             Some((trees, n_features))
         } else {
             None
         };
         r.finish()?;
+        check_params(
+            max_depth,
+            min_samples_leaf,
+            min_samples_split,
+            max_leaf_nodes,
+        )?;
         Ok(Self {
             n_estimators,
             max_depth,
             min_samples_leaf,
+            min_samples_split,
+            max_leaf_nodes,
             max_features,
             seed,
             fitted,
+            importances,
         })
     }
 }
 
 impl RandomForestClassifier {
-    /// Serialises the forest (settings, classes and fitted trees) to a model file.
+    /// Serialises the forest (settings, classes and fitted trees) to a model file. A forest that
+    /// uses none of the newer settings is written in the older kind, so loading and saving it
+    /// leaves its bytes unchanged.
     pub fn to_bytes(&self) -> Result<Vec<u8>, Error> {
-        let mut w = Writer::for_float::<f64>(kind::RANDOM_FOREST_CLASSIFIER);
+        let uses_new = self.min_samples_split != 2
+            || self.max_leaf_nodes.is_some()
+            || self
+                .fitted
+                .as_ref()
+                .is_some_and(|f| !f.importances.is_empty());
+        let tag = if uses_new {
+            kind::RANDOM_FOREST_CLASSIFIER_V2
+        } else {
+            kind::RANDOM_FOREST_CLASSIFIER
+        };
+        let mut w = Writer::for_float::<f64>(tag);
         write_forest_settings(
             &mut w,
             self.n_estimators,
@@ -618,6 +723,10 @@ impl RandomForestClassifier {
             self.max_features,
             self.seed,
         );
+        if uses_new {
+            w.usize(self.min_samples_split);
+            w.usize(self.max_leaf_nodes.unwrap_or(0));
+        }
         w.bool(self.criterion == Criterion::Entropy);
         match &self.fitted {
             None => w.bool(false),
@@ -629,17 +738,39 @@ impl RandomForestClassifier {
                 for t in &f.trees {
                     write_tree(&mut w, t);
                 }
+                if uses_new {
+                    w.f64s(&f.importances);
+                }
             }
         }
         Ok(w.finish())
     }
 
     /// Loads a forest written by [`RandomForestClassifier::to_bytes`]. Checks the classes are
-    /// sorted and distinct, and that every leaf predicts one of them.
+    /// sorted and distinct, and that every leaf predicts one of them. Files written before the
+    /// split size, the leaf limit and the importances were stored load with the defaults.
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, Error> {
-        let mut r = Reader::new(bytes, kind::RANDOM_FOREST_CLASSIFIER)?;
+        let v2 = file_kind(bytes)? == kind::RANDOM_FOREST_CLASSIFIER_V2;
+        let mut r = Reader::new(
+            bytes,
+            if v2 {
+                kind::RANDOM_FOREST_CLASSIFIER_V2
+            } else {
+                kind::RANDOM_FOREST_CLASSIFIER
+            },
+        )?;
         let (n_estimators, max_depth, min_samples_leaf, max_features, seed) =
             read_forest_settings(&mut r)?;
+        let (min_samples_split, max_leaf_nodes) = if v2 {
+            let split = r.usize()?;
+            let leaves = match r.usize()? {
+                0 => None,
+                k => Some(k),
+            };
+            (split, leaves)
+        } else {
+            (2, None)
+        };
         let criterion = if r.bool()? {
             Criterion::Entropy
         } else {
@@ -649,15 +780,27 @@ impl RandomForestClassifier {
             let n_features = r.usize()?;
             let classes = r.f64s()?;
             let trees = read_forest_trees(&mut r, n_estimators, n_features)?;
+            let importances = if v2 {
+                read_importances(&mut r, n_features)?
+            } else {
+                Vec::new()
+            };
             Some(ForestFit {
                 trees,
                 classes,
                 n_features,
+                importances,
             })
         } else {
             None
         };
         r.finish()?;
+        check_params(
+            max_depth,
+            min_samples_leaf,
+            min_samples_split,
+            max_leaf_nodes,
+        )?;
         if let Some(f) = &fitted {
             if f.classes.is_empty() || f.classes.windows(2).any(|w| w[0] >= w[1]) {
                 return Err(invalid("forest classes are not sorted and distinct"));
@@ -678,6 +821,8 @@ impl RandomForestClassifier {
             n_estimators,
             max_depth,
             min_samples_leaf,
+            min_samples_split,
+            max_leaf_nodes,
             criterion,
             max_features,
             seed,

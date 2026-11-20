@@ -10,8 +10,13 @@ All notable changes to `tpt-ml-proven-trees` are recorded here. The format follo
 - `DecisionTreeRegressor` and `DecisionTreeClassifier`: `min_samples_split`, a `max_leaf_nodes`
   limit (the tree then grows best-first, as scikit-learn does), and `feature_importances()`, each
   feature's share of the impurity reduction. Model files use the new kinds 26 and 27 when they
-  store these; the older kinds 8 and 19 still load. Forests and boosting do not store importances
-  yet.
+  store these; the older kinds 8 and 19 still load.
+- `RandomForestRegressor`, `RandomForestClassifier` and `GradientBoostingRegressor` take the same
+  `min_samples_split` and `max_leaf_nodes` for each tree, and report `feature_importances()`. The
+  forests average the trees' shares, as scikit-learn does; boosting normalises the squared-error
+  reductions summed over all rounds. Their files use kinds 28 to 30 when they store these.
+  Boosting's importances agree with scikit-learn's to about 0.002 on the test data but not
+  exactly; the cause is not yet traced.
 - `DecisionTreeRegressor`: CART regression with exact greedy splits, scikit-learn's midpoint
   thresholds, and a `min_samples_leaf` limit.
 - `GradientBoostingRegressor`: squared-error boosting over regression trees, with a learning

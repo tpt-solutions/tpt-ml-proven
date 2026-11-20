@@ -80,15 +80,19 @@ from.
 | `LOGISTIC_LABELLED` | 25 | `LogisticRegression` (binary), with the two labels it was trained on |
 | `DECISION_TREE_V2` | 26 | `DecisionTreeRegressor` with a split size, a leaf limit and importances |
 | `DECISION_TREE_CLASSIFIER_V2` | 27 | `DecisionTreeClassifier` with a split size, a leaf limit and importances |
+| `RANDOM_FOREST_REGRESSOR_V2` | 28 | `RandomForestRegressor` with a split size, a leaf limit and importances |
+| `RANDOM_FOREST_CLASSIFIER_V2` | 29 | `RandomForestClassifier` with a split size, a leaf limit and importances |
+| `GRADIENT_BOOSTING_V2` | 30 | `GradientBoostingRegressor` with a split size, a leaf limit and importances |
 
 A model's payload starts with its parameters, then a flag for whether it is fitted, then the
 fitted state. A loaded model can be refitted with the same settings.
 
 A model that gains fields gets a new kind rather than a new version, so the files already written
-keep loading. Kinds 8 and 19 are the single trees without the newer settings, and kinds 26 and 27
-add the split size, the leaf limit, and the per-feature importances. A model that uses none of the
-newer settings is still written in the older kind, so loading and saving an older file leaves its
-bytes unchanged. Kinds 8 and 19 load with the defaults and without importances.
+keep loading. The single trees (kinds 8 and 19), the forests (20 and 21) and the boosted model (9
+and 22) have newer versions, kinds 26 to 30, that add the split size, the leaf limit and the
+per-feature importances. A model that uses none of the newer settings, and has no importances, is
+still written in the older kind, so loading and saving an older file leaves its bytes unchanged.
+Older kinds load with the defaults and without importances.
 
 ## Compatibility rules
 

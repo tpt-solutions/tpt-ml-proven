@@ -21,8 +21,8 @@ use tpt_ml_proven_core::{
     ensures, requires, ArrayView, Predictor, SupervisedEstimator, TargetView,
 };
 
-use crate::classifier::{grow_classification_tree, Criterion};
-use crate::gbm::{check_limits, read_xy};
+use crate::classifier::{check_params, grow_classification_tree, Criterion};
+use crate::gbm::read_xy;
 use crate::tree::{fit_tree, Limits, Node, Tree};
 
 /// Row indices drawn with replacement, `rows` of them.
@@ -82,9 +82,26 @@ pub struct RandomForestRegressor {
     pub(crate) n_estimators: usize,
     pub(crate) max_depth: usize,
     pub(crate) min_samples_leaf: usize,
+    pub(crate) min_samples_split: usize,
+    pub(crate) max_leaf_nodes: Option<usize>,
     pub(crate) max_features: Option<usize>,
     pub(crate) seed: u64,
     pub(crate) fitted: Option<(Vec<Tree>, usize)>,
+    /// Mean over the trees of each tree's share of the impurity reduction. Empty before `fit`
+    /// and for a model loaded from a file written before importances were stored.
+    pub(crate) importances: Vec<f64>,
+}
+
+/// The average over trees of each tree's share of the impurity reduction, as scikit-learn
+/// averages a forest's importances.
+pub(crate) fn mean_importances(shares: &[Vec<f64>], cols: usize) -> Vec<f64> {
+    let mut sum = vec![0.0; cols];
+    for share in shares {
+        for (acc, v) in sum.iter_mut().zip(share) {
+            *acc += v;
+        }
+    }
+    sum.iter().map(|v| v / shares.len() as f64).collect()
 }
 
 impl RandomForestRegressor {
@@ -94,10 +111,32 @@ impl RandomForestRegressor {
             n_estimators,
             max_depth,
             min_samples_leaf: 1,
+            min_samples_split: 2,
+            max_leaf_nodes: None,
             max_features: None,
             seed: 0,
             fitted: None,
+            importances: Vec::new(),
         }
+    }
+
+    /// Sets the number of rows a node needs before it may be split in each tree (default 2).
+    pub fn with_min_samples_split(mut self, min_samples_split: usize) -> Self {
+        self.min_samples_split = min_samples_split;
+        self
+    }
+
+    /// Limits each tree to this many leaves, grown best-first, or removes the limit with `None`.
+    pub fn with_max_leaf_nodes(mut self, max_leaf_nodes: Option<usize>) -> Self {
+        self.max_leaf_nodes = max_leaf_nodes;
+        self
+    }
+
+    /// Each feature's share of the total impurity reduction, averaged over the trees and summing
+    /// to one. `None` before `fit`, and for a model loaded from a file written before importances
+    /// were stored.
+    pub fn feature_importances(&self) -> Option<Vec<f64>> {
+        (!self.importances.is_empty()).then(|| self.importances.clone())
     }
 
     /// Sets the seed for the bootstrap samples and the feature choices.
@@ -140,28 +179,39 @@ impl SupervisedEstimator for RandomForestRegressor {
         Y: TargetView<Elem = f64>,
     {
         self.fitted = None;
+        self.importances = Vec::new();
         check_forest(self.n_estimators)?;
-        check_limits(self.max_depth, self.min_samples_leaf)?;
+        check_params(
+            self.max_depth,
+            self.min_samples_leaf,
+            self.min_samples_split,
+            self.max_leaf_nodes,
+        )?;
         let (data, targets, rows, cols) = read_xy(&x, &y)?;
         let per_split = features_per_split(self.max_features, cols, cols);
         let limits = Limits {
             max_depth: self.max_depth,
             min_samples_leaf: self.min_samples_leaf,
-            min_samples_split: 2,
-            max_leaf_nodes: usize::MAX,
+            min_samples_split: self.min_samples_split,
+            max_leaf_nodes: self.max_leaf_nodes.unwrap_or(usize::MAX),
             max_features: per_split,
         };
         let mut rng = SplitMix64::new(self.seed);
         let mut trees = Vec::with_capacity(self.n_estimators);
+        let mut shares = Vec::with_capacity(self.n_estimators);
         for _ in 0..self.n_estimators {
             let idx = bootstrap(rows, &mut rng);
             let boot_x = take_rows(&data, cols, &idx);
             let boot_y: Vec<f64> = idx.iter().map(|&i| targets[i]).collect();
-            trees.push(
-                fit_tree(&boot_x, rows, cols, &boot_y, limits, &mut rng)?.without_importances(),
+            let tree = fit_tree(&boot_x, rows, cols, &boot_y, limits, &mut rng)?;
+            shares.push(
+                tree.feature_importances()
+                    .unwrap_or_else(|| vec![0.0; cols]),
             );
+            trees.push(tree.without_importances());
         }
         ensures!(trees.len() == self.n_estimators, "forest.estimators_fitted");
+        self.importances = mean_importances(&shares, cols);
         self.fitted = Some((trees, cols));
         Ok(())
     }
@@ -198,6 +248,8 @@ pub struct RandomForestClassifier {
     pub(crate) n_estimators: usize,
     pub(crate) max_depth: usize,
     pub(crate) min_samples_leaf: usize,
+    pub(crate) min_samples_split: usize,
+    pub(crate) max_leaf_nodes: Option<usize>,
     pub(crate) criterion: Criterion,
     pub(crate) max_features: Option<usize>,
     pub(crate) seed: u64,
@@ -210,6 +262,9 @@ pub(crate) struct ForestFit {
     pub(crate) trees: Vec<Tree>,
     pub(crate) classes: Vec<f64>,
     pub(crate) n_features: usize,
+    /// Mean over the trees of each tree's share of the impurity reduction. Empty for a model
+    /// loaded from a file written before importances were stored.
+    pub(crate) importances: Vec<f64>,
 }
 
 impl RandomForestClassifier {
@@ -219,11 +274,35 @@ impl RandomForestClassifier {
             n_estimators,
             max_depth,
             min_samples_leaf: 1,
+            min_samples_split: 2,
+            max_leaf_nodes: None,
             criterion: Criterion::Gini,
             max_features: None,
             seed: 0,
             fitted: None,
         }
+    }
+
+    /// Sets the number of rows a node needs before it may be split in each tree (default 2).
+    pub fn with_min_samples_split(mut self, min_samples_split: usize) -> Self {
+        self.min_samples_split = min_samples_split;
+        self
+    }
+
+    /// Limits each tree to this many leaves, grown best-first, or removes the limit with `None`.
+    pub fn with_max_leaf_nodes(mut self, max_leaf_nodes: Option<usize>) -> Self {
+        self.max_leaf_nodes = max_leaf_nodes;
+        self
+    }
+
+    /// Each feature's share of the total impurity reduction, averaged over the trees and summing
+    /// to one. `None` before `fit`, and for a model loaded from a file written before importances
+    /// were stored.
+    pub fn feature_importances(&self) -> Option<Vec<f64>> {
+        self.fitted
+            .as_ref()
+            .filter(|f| !f.importances.is_empty())
+            .map(|f| f.importances.clone())
     }
 
     /// Sets the seed for the bootstrap samples and the feature choices.
@@ -278,7 +357,12 @@ impl SupervisedEstimator for RandomForestClassifier {
     {
         self.fitted = None;
         check_forest(self.n_estimators)?;
-        check_limits(self.max_depth, self.min_samples_leaf)?;
+        check_params(
+            self.max_depth,
+            self.min_samples_leaf,
+            self.min_samples_split,
+            self.max_leaf_nodes,
+        )?;
         let (data, labels, rows, cols) = read_xy(&x, &y)?;
         requires!(rows >= 1, "forest.rows_positive");
 
@@ -300,29 +384,33 @@ impl SupervisedEstimator for RandomForestClassifier {
         let limits = Limits {
             max_depth: self.max_depth,
             min_samples_leaf: self.min_samples_leaf,
-            min_samples_split: 2,
-            max_leaf_nodes: usize::MAX,
+            min_samples_split: self.min_samples_split,
+            max_leaf_nodes: self.max_leaf_nodes.unwrap_or(usize::MAX),
             max_features: per_split,
         };
         let mut rng = SplitMix64::new(self.seed);
         let mut trees = Vec::with_capacity(self.n_estimators);
+        let mut shares = Vec::with_capacity(self.n_estimators);
         for _ in 0..self.n_estimators {
             let idx = bootstrap(rows, &mut rng);
             let boot_x = take_rows(&data, cols, &idx);
             let boot_class: Vec<usize> = idx.iter().map(|&i| class_of[i]).collect();
-            trees.push(
-                grow_classification_tree(
-                    &boot_x,
-                    cols,
-                    &boot_class,
-                    &classes,
-                    limits,
-                    self.criterion,
-                    &mut rng,
-                )
-                .without_importances(),
+            let tree = grow_classification_tree(
+                &boot_x,
+                cols,
+                &boot_class,
+                &classes,
+                limits,
+                self.criterion,
+                &mut rng,
             );
+            shares.push(
+                tree.feature_importances()
+                    .unwrap_or_else(|| vec![0.0; cols]),
+            );
+            trees.push(tree.without_importances());
         }
+        let importances = mean_importances(&shares, cols);
         ensures!(
             trees.iter().all(|t| t.nodes.iter().all(|n| match n {
                 Node::Leaf { value, .. } => classes.contains(value),
@@ -334,6 +422,7 @@ impl SupervisedEstimator for RandomForestClassifier {
             trees,
             classes,
             n_features: cols,
+            importances,
         });
         Ok(())
     }
@@ -431,6 +520,30 @@ impl RandomForestClassifier {
     /// The seed the forest was configured with.
     pub fn seed(&self) -> u64 {
         self.seed
+    }
+}
+
+impl RandomForestRegressor {
+    /// Minimum rows a node needs before it may be split, in each tree.
+    pub fn min_samples_split(&self) -> usize {
+        self.min_samples_split
+    }
+
+    /// The leaf limit of each tree, or `None` for no limit.
+    pub fn max_leaf_nodes(&self) -> Option<usize> {
+        self.max_leaf_nodes
+    }
+}
+
+impl RandomForestClassifier {
+    /// Minimum rows a node needs before it may be split, in each tree.
+    pub fn min_samples_split(&self) -> usize {
+        self.min_samples_split
+    }
+
+    /// The leaf limit of each tree, or `None` for no limit.
+    pub fn max_leaf_nodes(&self) -> Option<usize> {
+        self.max_leaf_nodes
     }
 }
 

@@ -109,6 +109,15 @@ pub mod kind {
     /// A `DecisionTreeClassifier` that stores its leaf limit, split size and feature importances.
     /// Files of kind `DECISION_TREE_CLASSIFIER` (19) remain readable.
     pub const DECISION_TREE_CLASSIFIER_V2: u32 = 27;
+    /// A `RandomForestRegressor` that stores its split size, leaf limit and feature importances.
+    /// Files of kind `RANDOM_FOREST_REGRESSOR` (20) remain readable.
+    pub const RANDOM_FOREST_REGRESSOR_V2: u32 = 28;
+    /// A `RandomForestClassifier` that stores its split size, leaf limit and feature importances.
+    /// Files of kind `RANDOM_FOREST_CLASSIFIER` (21) remain readable.
+    pub const RANDOM_FOREST_CLASSIFIER_V2: u32 = 29;
+    /// A `GradientBoostingRegressor` that stores its split size, leaf limit and feature
+    /// importances. Files of kind `GRADIENT_BOOSTING_SAMPLED` (22) remain readable.
+    pub const GRADIENT_BOOSTING_V2: u32 = 30;
 }
 
 /// Header length of a version 1 file: magic, version, kind.
