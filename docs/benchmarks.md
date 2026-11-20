@@ -164,3 +164,29 @@ tpt-ml-proven from 0.30 to 0.49), so the all-core result is best read as level. 
 not met on either side: a single-thread gap of 13% would need about a 2.3× gain to reach 2×
 against scikit-learn. The Phase 14 kernel experiments above did not produce that gain, and the
 remaining options are explicit SIMD or a change to the contract checks.
+
+## Phase 14: an AVX2 assignment kernel with the centres in lanes
+
+The earlier AVX2 attempt kept one horizontal sum per centre, and it was rejected. This variant
+holds eight centres in the lanes of one vector, so each row needs no horizontal sum. The layout
+has one vector per coordinate, and the argmin is taken over the lanes.
+
+A standalone probe on 1,000,000 × 50 `f32`, k = 8, assignment only, best of three, gave 0.024 s
+for the lane kernel against 0.107 s for a copy of the current kernel. The labels agreed on all
+but one of a million rows, a near-tie that rounds differently. That comparison overstated the
+gain. The probe's copy of the current kernel ran slower than the library's own full pass, so it
+does not represent the library's kernel.
+
+Integrated into the library for `f32` on AVX2, with the portable path kept for other types and
+CPUs, the lane kernel was no faster on the full fit. Five interleaved rounds, one thread: 1.41 s
+against 1.35 s for the committed kernel (minimum), and level on all cores (0.270 s against
+0.275 s). The integration was reverted, so the unsafe code is not in the repository.
+
+Two experiments located the cost. With the hull tracking (`lo`/`hi`) removed, the AVX2 build
+took 1.33 s, a saving of about 6%. Removing the accumulation as well stops the centres from
+moving, so the fit stops after one iteration; that run measured nothing and is not used.
+
+The conclusion is that the distance arithmetic is no longer the bottleneck of the fit. The rest
+is the per-row accumulation of sums and ranges, and per-row overhead. A faster kernel would need
+that accumulation vectorised over the coordinates rather than over the centres. That is a
+separate change, to be measured first with a probe like the one above.
