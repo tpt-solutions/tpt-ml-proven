@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Quickstart · tpt-ml-proven</title>
+<link rel="stylesheet" href="site.css">
+</head>
+<body>
+<nav class="site" aria-label="Site">
+  <ul>
+    <li><a href="index.html"><strong>tpt-ml-proven</strong></a></li>
+    <li><a href="quickstart.html" aria-current="page">Quickstart</a></li>
+    <li><a href="estimators.html">Which estimator</a></li>
+    <li><a href="migrating.html">From scikit-learn</a></li>
+    <li><a href="contracts.html">Contracts</a></li>
+  </ul>
+</nav>
+<main>
+  <h1>Quickstart</h1>
+  <p>Nothing is published to a registry yet, so each example starts from a checkout of the repository.
+  Every example clusters the same eight points into two groups.</p>
+
+  <h2>Rust</h2>
+  <p>In a crate that depends on <code>tpt-ml-proven</code> by path:</p>
+  <pre><code>use tpt_ml_proven::prelude::*;
+
+let data = [0.0, 0.0, 0.1, 0.0, 10.0, 10.0, 10.1, 10.0];
+let x = DenseView::new(&data, 4, 2).unwrap();
+let mut km = KMeans::&lt;f64&gt;::new(2).with_seed(1);
+UnsupervisedEstimator::fit(&mut km, x).unwrap();
+let labels = Predictor::predict(&km, DenseView::new(&data, 4, 2).unwrap()).unwrap();</code></pre>
+  <p>The worked examples are in <code>crates/tpt-ml-proven/examples/</code>: <code>save_and_load</code> and
+  <code>cross_validate</code>. Run them with <code>cargo run -p tpt-ml-proven --example save_and_load</code>.</p>
+
+  <h2>Python</h2>
+  <p>Build and install into a virtual environment, with <code>maturin develop --release</code> run in <code>ffi/python</code>.
+  Inputs can be NumPy arrays, lists of rows, pandas or polars frames.</p>
+  <pre><code>from tpt_ml_proven import KMeans
+
+X = [[0.0, 0.0], [0.1, 0.0], [10.0, 10.0], [10.1, 10.0]]
+labels = KMeans(2, seed=1).fit_predict(X)</code></pre>
+  <p>The tour notebook, <code>ffi/python/examples/tour.ipynb</code>, covers clustering, save and load, a scikit-learn
+  pipeline, trees and forests, with its outputs already run.</p>
+
+  <h2>JavaScript (WebAssembly)</h2>
+  <p>Build the packages with <code>node scripts/build.mjs</code> in <code>ffi/wasm</code>. Constructors take an options object.</p>
+  <pre><code>const { KMeansModel } = require("./pkg/tpt_ml_proven_wasm.js");
+
+const km = new KMeansModel({ nClusters: 2, seed: 1 });
+km.fit(new Float64Array([0, 0, 0.1, 0, 10, 10, 10.1, 10]), 2);   // flat row-major data, then the column count
+const labels = km.labels;   // a getter, not a method</code></pre>
+  <p>The browser demo is <code>ffi/wasm/demo/index.html</code>. It loads the <code>web</code> package. It has not yet been
+  run in a browser; see the status note in <a href="https://github.com/tpt-solutions/tpt-ml-proven/blob/master/todo.md">todo.md</a>.</p>
+
+  <h2>Go</h2>
+  <p>The Go package uses cgo over the C library. Build the library first with
+  <code>cargo build --release --manifest-path ffi/c/Cargo.toml</code>, then use the module at
+  <code>github.com/tpt-solutions/tpt-ml-proven/ffi/go</code> (Go 1.21 or later).</p>
+  <pre><code>x := [][]float64{{0, 0}, {0.1, 0}, {10, 10}, {10.1, 10}}
+km, err := mlproven.NewKMeans(2, mlproven.WithSeed(1))
+if err != nil { log.Fatal(err) }
+defer km.Close()
+if err := km.Fit(x); err != nil { log.Fatal(err) }
+labels, err := km.Labels()</code></pre>
+
+  <h2>C</h2>
+  <p>The C ABI is in <code>ffi/c</code>. <code>examples/main.c</code> is a complete program that is compiled and run in CI.
+  Install to a prefix with <code>sh install.sh &lt;prefix&gt;</code>, then build against it with
+  <code>pkg-config --cflags --libs tpt-ml-proven</code>.</p>
+
+  <p class="muted">Next: <a href="estimators.html">choose an estimator</a>.</p>
+</main>
+</body>
+</html>

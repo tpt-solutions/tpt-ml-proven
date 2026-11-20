@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Contracts · tpt-ml-proven</title>
+<link rel="stylesheet" href="site.css">
+</head>
+<body>
+<nav class="site" aria-label="Site">
+  <ul>
+    <li><a href="index.html"><strong>tpt-ml-proven</strong></a></li>
+    <li><a href="quickstart.html">Quickstart</a></li>
+    <li><a href="estimators.html">Which estimator</a></li>
+    <li><a href="migrating.html">From scikit-learn</a></li>
+    <li><a href="contracts.html" aria-current="page">Contracts</a></li>
+  </ul>
+</nav>
+<main>
+  <h1>Contracts</h1>
+  <p>Each algorithm has a contract: a short list of conditions it must satisfy. Some conditions are inputs it
+  requires, and some are outputs it promises. The conditions are written down, checked by a solver where they are
+  linear, and checked at run time where they are not.</p>
+
+  <h2>What a contract says</h2>
+  <p>Take KMeans. Its contract requires at least one row, <code>k ≥ 1</code>, and <code>k ≤ rows</code>. It promises that
+  the inertia never increases from one iteration to the next, that once the assignments stop changing the fit has
+  converged, and that every centre lies inside the convex hull of the data.</p>
+  <ul>
+    <li><strong><code>requires</code></strong> is a precondition. A caller that breaks it gets an error, not a result.</li>
+    <li><strong><code>ensures</code></strong> is a postcondition. The implementation must make it true for every valid input.</li>
+  </ul>
+  <p>The contract files are in <code>docs/contracts/</code>, one per algorithm, and the full reference is in
+  <a href="https://github.com/tpt-solutions/tpt-ml-proven/blob/master/docs/contracts/README.md">docs/contracts/README.md</a>.</p>
+
+  <h2>How each clause is checked</h2>
+  <table>
+    <thead><tr><th>Check</th><th>What it does</th><th>Fails CI?</th></tr></thead>
+    <tbody>
+      <tr><td>Solver</td><td>A linear clause is checked by the QF_LRA solver from <code>tpt-solver</code>. A <code>PROVEN</code> result is accepted only after its certificate is checked.</td><td>No, when proven. A <code>DISPROVED</code> or <code>INCONCLUSIVE</code> result does.</td></tr>
+      <tr><td>Runtime</td><td>A clause outside linear arithmetic, such as a product of variables, is enforced by a runtime assertion in the Rust source, and by property tests.</td><td>Only the linkage: every clause needs a matching check.</td></tr>
+      <tr><td>Linkage</td><td>Every clause must name a runtime check in the source, so a contract cannot drift from the code.</td><td>Yes.</td></tr>
+    </tbody>
+  </table>
+
+  <h2>Reading the verifier output</h2>
+  <table>
+    <thead><tr><th>Verdict</th><th>Meaning</th></tr></thead>
+    <tbody>
+      <tr><td><code>assumed</code></td><td>A <code>requires</code> clause. It is a hypothesis, and it is not checked.</td></tr>
+      <tr><td><code>PROVEN</code></td><td>The solver showed the clause follows from the linear preconditions.</td></tr>
+      <tr><td><code>DISPROVED</code></td><td>A counterexample exists. The counterexample is printed. This fails CI.</td></tr>
+      <tr><td><code>UNVERIFIED</code></td><td>Not linear, so it is left to the runtime checks and the property tests. It fails CI only with <code>--fail-on-unverified</code>.</td></tr>
+      <tr><td><code>INCONCLUSIVE</code></td><td>The solver could not decide, or its answer could not be confirmed. This fails CI.</td></tr>
+    </tbody>
+  </table>
+
+  <h2>Run it</h2>
+  <p>From the repository root:</p>
+  <pre><code>cargo run --manifest-path tools/tptc-verify/Cargo.toml -- docs/contracts</code></pre>
+  <p>Exit code 0 means no clause failed. CI runs this on every push, and the verifier's own tests include deliberately
+  false contracts that must be rejected.</p>
+
+  <h2>What contracts do not promise</h2>
+  <p>A contract is a check on the algorithm, not a proof that it is correct in every sense. A proven clause is a fact
+  about the linear part of the specification. Runtime checks catch violations on the inputs that actually run, and
+  parity tests show the numbers agree with scikit-learn on the fixtures. Neither one covers every input.</p>
+</main>
+</body>
+</html>

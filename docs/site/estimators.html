@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Which estimator · tpt-ml-proven</title>
+<link rel="stylesheet" href="site.css">
+</head>
+<body>
+<nav class="site" aria-label="Site">
+  <ul>
+    <li><a href="index.html"><strong>tpt-ml-proven</strong></a></li>
+    <li><a href="quickstart.html">Quickstart</a></li>
+    <li><a href="estimators.html" aria-current="page">Which estimator</a></li>
+    <li><a href="migrating.html">From scikit-learn</a></li>
+    <li><a href="contracts.html">Contracts</a></li>
+  </ul>
+</nav>
+<main>
+  <h1>Which estimator</h1>
+  <p>Find the task you have, then pick the estimator. The parameters are the Python names; the Rust, WASM and
+  C names are the same in snake case or camel case, and the bindings' READMEs have the rest.
+  Defaults are the ones in the Python signatures.</p>
+
+  <h2>Pick by task</h2>
+  <table>
+    <thead><tr><th>I want to</th><th>Use</th><th>Notes</th></tr></thead>
+    <tbody>
+      <tr><td>Group points, with a known number of groups</td><td><code>KMeans</code></td><td>Euclidean distance. Needs <code>n_clusters</code>.</td></tr>
+      <tr><td>Group points, find the number of groups and mark outliers</td><td><code>DBSCAN</code> or <code>HDBSCAN</code></td><td>Noise points get label <code>-1</code>.</td></tr>
+      <tr><td>Reduce dimensions for display or for a model</td><td><code>PCA</code></td><td>Centres the data. Use <code>TruncatedSVD</code> for sparse data.</td></tr>
+      <tr><td>Factor non-negative data into parts</td><td><code>NMF</code></td><td>Frobenius loss, multiplicative updates. Input must be non-negative.</td></tr>
+      <tr><td>Predict a number from numbers, with no regularisation</td><td><code>Ridge</code> with a small <code>alpha</code></td><td>Closed form.</td></tr>
+      <tr><td>Predict a number and drop irrelevant inputs</td><td><code>Lasso</code></td><td>Coordinate descent. Sets some coefficients to exactly zero.</td></tr>
+      <tr><td>Predict a number with L1 and L2 penalties together</td><td><code>ElasticNet</code></td><td><code>l1_ratio</code> picks the mix.</td></tr>
+      <tr><td>Classify, with probabilities</td><td><code>LogisticRegression</code></td><td>L2 penalty, Newton iterations. <code>C</code> is the inverse strength of the penalty. The Rust crate also has a multinomial model; check <a href="https://github.com/tpt-solutions/tpt-ml-proven/blob/master/docs/usage.md">docs/usage.md</a> for what each binding exposes.</td></tr>
+      <tr><td>Classify or regress with trees you can read</td><td><code>DecisionTreeClassifier</code>, <code>DecisionTreeRegressor</code></td><td>Gini or entropy for classification. Has <code>feature_importances_</code>.</td></tr>
+      <tr><td>Get the most accuracy from trees on tabular data</td><td><code>RandomForestClassifier</code>, <code>RandomForestRegressor</code>, <code>GradientBoostingRegressor</code></td><td>Forests average trees. Boosting fits them in sequence with <code>learning_rate</code>.</td></tr>
+      <tr><td>Classify with a very small, fast ensemble</td><td><code>StumpForest</code></td><td>Bagged depth-one trees with majority vote.</td></tr>
+      <tr><td>Prepare features before a model</td><td><code>StandardScaler</code>, <code>MinMaxScaler</code>, <code>RobustScaler</code></td><td>Fit on training data only.</td></tr>
+      <tr><td>Encode categories as numbers</td><td><code>OneHotEncoder</code>, <code>OrdinalEncoder</code></td><td>An unseen category at transform time is an error.</td></tr>
+      <tr><td>Fill missing values</td><td><code>SimpleImputer</code></td><td><code>strategy</code> is <code>"mean"</code>, <code>"median"</code>, <code>"most_frequent"</code> or <code>"constant"</code>.</td></tr>
+    </tbody>
+  </table>
+
+  <h2>Parameters</h2>
+
+  <h3>Clustering</h3>
+  <table>
+    <thead><tr><th>Estimator</th><th>Parameters and defaults</th></tr></thead>
+    <tbody>
+      <tr><td><code>KMeans</code></td><td><code>n_clusters</code>, <code>max_iter=300</code>, <code>tol=1e-4</code>, <code>init="k-means++"</code>, <code>seed=0</code>, <code>threads=1</code></td></tr>
+      <tr><td><code>DBSCAN</code></td><td><code>eps</code>, <code>min_samples</code> (both required)</td></tr>
+      <tr><td><code>HDBSCAN</code></td><td><code>min_cluster_size=5</code>, <code>min_samples=None</code></td></tr>
+    </tbody>
+  </table>
+
+  <h3>Decomposition</h3>
+  <table>
+    <thead><tr><th>Estimator</th><th>Parameters and defaults</th></tr></thead>
+    <tbody>
+      <tr><td><code>PCA</code></td><td><code>n_components</code> (required)</td></tr>
+      <tr><td><code>TruncatedSVD</code></td><td><code>n_components</code> (required)</td></tr>
+      <tr><td><code>NMF</code></td><td><code>n_components</code> (required), <code>max_iter=200</code>, <code>tol=1e-4</code>, <code>seed=0</code></td></tr>
+    </tbody>
+  </table>
+
+  <h3>Linear models</h3>
+  <table>
+    <thead><tr><th>Estimator</th><th>Parameters and defaults</th></tr></thead>
+    <tbody>
+      <tr><td><code>Ridge</code></td><td><code>alpha=1.0</code></td></tr>
+      <tr><td><code>Lasso</code></td><td><code>alpha=1.0</code>, <code>max_iter=1000</code>, <code>tol=1e-4</code></td></tr>
+      <tr><td><code>ElasticNet</code></td><td><code>alpha=1.0</code>, <code>l1_ratio=0.5</code>, <code>max_iter=1000</code>, <code>tol=1e-4</code></td></tr>
+      <tr><td><code>LogisticRegression</code></td><td><code>C=1.0</code>, <code>max_iter=100</code>, <code>tol=1e-4</code></td></tr>
+    </tbody>
+  </table>
+
+  <h3>Trees and ensembles</h3>
+  <table>
+    <thead><tr><th>Estimator</th><th>Parameters and defaults</th></tr></thead>
+    <tbody>
+      <tr><td><code>DecisionTreeRegressor</code></td><td><code>max_depth=3</code>, <code>min_samples_leaf=1</code>, <code>min_samples_split=2</code>, <code>max_leaf_nodes=None</code></td></tr>
+      <tr><td><code>DecisionTreeClassifier</code></td><td>as the regressor, plus <code>criterion="gini"</code> (or <code>"entropy"</code>)</td></tr>
+      <tr><td><code>RandomForestRegressor</code></td><td><code>n_estimators=100</code>, <code>max_depth=10</code>, <code>min_samples_leaf=1</code>, <code>min_samples_split=2</code>, <code>max_leaf_nodes=None</code>, <code>max_features=None</code>, <code>seed=0</code></td></tr>
+      <tr><td><code>RandomForestClassifier</code></td><td>as the regressor, plus <code>criterion="gini"</code></td></tr>
+      <tr><td><code>GradientBoostingRegressor</code></td><td><code>n_estimators=100</code>, <code>learning_rate=0.1</code>, <code>max_depth=3</code>, <code>min_samples_leaf=1</code>, <code>min_samples_split=2</code>, <code>max_leaf_nodes=None</code>, <code>subsample=1.0</code>, <code>max_features=None</code>, <code>seed=0</code></td></tr>
+      <tr><td><code>StumpForest</code></td><td><code>n_estimators=100</code>, <code>seed=0</code></td></tr>
+    </tbody>
+  </table>
+
+  <h3>Preprocessing</h3>
+  <table>
+    <thead><tr><th>Estimator</th><th>Parameters and defaults</th></tr></thead>
+    <tbody>
+      <tr><td><code>StandardScaler</code>, <code>MinMaxScaler</code>, <code>RobustScaler</code>, <code>OneHotEncoder</code>, <code>OrdinalEncoder</code></td><td>none</td></tr>
+      <tr><td><code>SimpleImputer</code></td><td><code>strategy="mean"</code>, <code>fill_value=0.0</code> (used by <code>"constant"</code>)</td></tr>
+    </tbody>
+  </table>
+
+  <p class="muted">Tree defaults differ from scikit-learn (depth is limited by default): see
+  <a href="migrating.html">From scikit-learn</a> before you compare results.</p>
+</main>
+</body>
+</html>

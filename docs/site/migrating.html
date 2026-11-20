@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>From scikit-learn · tpt-ml-proven</title>
+<link rel="stylesheet" href="site.css">
+</head>
+<body>
+<nav class="site" aria-label="Site">
+  <ul>
+    <li><a href="index.html"><strong>tpt-ml-proven</strong></a></li>
+    <li><a href="quickstart.html">Quickstart</a></li>
+    <li><a href="estimators.html">Which estimator</a></li>
+    <li><a href="migrating.html" aria-current="page">From scikit-learn</a></li>
+    <li><a href="contracts.html">Contracts</a></li>
+  </ul>
+</nav>
+<main>
+  <h1>Moving from scikit-learn</h1>
+  <p>The Python package follows scikit-learn's shape: <code>fit</code> returns the estimator, <code>predict</code>,
+  <code>transform</code>, <code>score</code> and <code>fit_predict</code> work as expected, and
+  <code>get_params</code>, <code>set_params</code> and <code>clone</code> work. A scikit-learn scaler can sit in front
+  of one of ours in a <code>Pipeline</code>, and <code>cross_val_score</code> and grid search run on them; the
+  interop tests cover this. The differences below are the ones that will change a result or stop code from running.</p>
+
+  <h2>Names that differ</h2>
+  <table>
+    <thead><tr><th>scikit-learn</th><th>tpt-ml-proven</th><th>Notes</th></tr></thead>
+    <tbody>
+      <tr><td><code>random_state</code></td><td><code>seed</code></td><td>Every estimator with randomness. The default is <code>0</code>, so a fit is repeatable without setting it.</td></tr>
+      <tr><td><code>n_init</code> (KMeans)</td><td>not available</td><td>One start only. Run with several seeds and keep the lowest <code>inertia_</code> if you want the same effect.</td></tr>
+      <tr><td><code>n_jobs</code> (KMeans)</td><td><code>threads</code></td><td>Defaults to 1. Results match across thread counts.</td></tr>
+      <tr><td><code>C</code> (LogisticRegression)</td><td><code>C</code></td><td>Same meaning: the inverse of the penalty strength.</td></tr>
+    </tbody>
+  </table>
+
+  <h2>Defaults that differ</h2>
+  <p>These are the ones most likely to change a result without an error.</p>
+  <ul>
+    <li><strong>Tree depth.</strong> <code>DecisionTreeClassifier</code>, <code>DecisionTreeRegressor</code> and
+    <code>GradientBoostingRegressor</code> default to <code>max_depth=3</code>, and the random forests to
+    <code>max_depth=10</code>. scikit-learn leaves depth unlimited by default. Set <code>max_depth</code> explicitly on both
+    sides before you compare.</li>
+    <li><strong>Forest depth.</strong> Same point, for <code>RandomForestClassifier</code> and <code>RandomForestRegressor</code>.</li>
+    <li><strong>KMeans start.</strong> Ours is one k-means++ start from the seed. For a given seed the labels are reproducible,
+    but they are not guaranteed to be the labels scikit-learn gives for the same data. Parity is tested by giving both
+    sides the same starting centres, not by matching the random draws.</li>
+  </ul>
+
+  <h2>Results that match, and results that do not</h2>
+  <ul>
+    <li><strong>Checked against scikit-learn on committed fixtures:</strong> KMeans (given the same starting centres), PCA, and
+    the scalers, at 1e-9. Labels are compared up to relabelling, and PCA sign flips are normalised. The tolerance and the
+    normalisation for each algorithm are in <a href="https://github.com/tpt-solutions/tpt-ml-proven/blob/master/docs/parity.md">docs/parity.md</a>.</li>
+    <li><strong>Other algorithms</strong> have their own fixture tests, listed in <a href="https://github.com/tpt-solutions/tpt-ml-proven/blob/master/docs/parity.md">docs/parity.md</a>.</li>
+    <li><strong>Not compared to scikit-learn:</strong> the forests and <code>StumpForest</code>, which are tested by properties
+    because their random draws differ. Do not expect the same predictions.</li>
+    <li><strong>Not implemented:</strong> the NMF <code>cd</code> solver and NNDSVD initialisation, the <code>svd_solver</code>
+    choice and <code>whiten</code> for PCA, and the parallel fit for the forests.
+    An estimator that is not listed in <a href="estimators.html">Which estimator</a> is not available here.</li>
+  </ul>
+
+  <h2>Saving models</h2>
+  <p>Use <code>save</code> and <code>load</code>, or <code>pickle</code>, for KMeans, PCA, TruncatedSVD, NMF, Ridge, Lasso,
+  ElasticNet and StumpForest. LogisticRegression, DBSCAN and HDBSCAN do not have a file format yet. The format is documented in
+  <a href="https://github.com/tpt-solutions/tpt-ml-proven/blob/master/docs/model-format.md">docs/model-format.md</a>, and
+  files from earlier format versions still load.</p>
+
+  <h2>Checking a port</h2>
+  <p>Fit both libraries on the same data with the same settings, and compare the outputs that the algorithm defines
+  exactly: coefficients for Ridge and Lasso, cluster centres for KMeans given the same starting centres, and the
+  explained variance for PCA. Compare classifiers by their predicted labels, not by their internal state.</p>
+</main>
+</body>
+</html>

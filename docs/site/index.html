@@ -4,28 +4,34 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>tpt-ml-proven</title>
-<style>
-  :root { color-scheme: light dark; --fg: #1d1d1f; --bg: #ffffff; --muted: #6e6e73; --accent: #0b6e4f; }
-  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --fg: #f5f5f7; --bg: #161618; --muted: #a1a1a6; --accent: #53c79f; } }
-  body { margin: 0; font-family: system-ui, sans-serif; color: var(--fg); background: var(--bg); line-height: 1.55; }
-  main { max-width: 52rem; margin: 0 auto; padding: 2.5rem 1rem; }
-  h1 { margin-top: 0; }
-  a { color: var(--accent); }
-  .muted { color: var(--muted); }
-  ul { padding-left: 1.2rem; }
-  code { font-family: ui-monospace, monospace; font-size: 0.95em; }
-</style>
+<link rel="stylesheet" href="site.css">
 </head>
 <body>
+<nav class="site" aria-label="Site">
+  <ul>
+    <li><a href="index.html"><strong>tpt-ml-proven</strong></a></li>
+    <li><a href="quickstart.html">Quickstart</a></li>
+    <li><a href="estimators.html">Which estimator</a></li>
+    <li><a href="migrating.html">From scikit-learn</a></li>
+    <li><a href="contracts.html">Contracts</a></li>
+  </ul>
+</nav>
 <main>
   <h1>tpt-ml-proven</h1>
   <p>Classical machine learning in Rust, with contracts on the algorithms and checks that tie
   each contract to the code. Each estimator is verified against scikit-learn on committed
   fixtures.</p>
 
-  <h2>Documentation</h2>
+  <h2>Start here</h2>
   <ul>
-    <li><a href="https://github.com/tpt-solutions/tpt-ml-proven/blob/master/README.md">Overview and workspace</a></li>
+    <li><a href="quickstart.html">Quickstart</a>: a first fit in Rust, Python, JavaScript, Go or C.</li>
+    <li><a href="estimators.html">Which estimator</a>: a table of what each one is for, with its parameters.</li>
+    <li><a href="migrating.html">Moving from scikit-learn</a>: the names that differ and what is not implemented.</li>
+    <li><a href="contracts.html">Contracts</a>: what the <code>requires</code> and <code>ensures</code> clauses mean and how CI checks them.</li>
+  </ul>
+
+  <h2>Reference on GitHub</h2>
+  <ul>
     <li><a href="https://github.com/tpt-solutions/tpt-ml-proven/blob/master/docs/usage.md">Usage guide, per binding</a></li>
     <li><a href="https://github.com/tpt-solutions/tpt-ml-proven/blob/master/docs/model-format.md">Model file format, version 1</a></li>
     <li><a href="https://github.com/tpt-solutions/tpt-ml-proven/blob/master/docs/contracts/README.md">Contracts and the verifier</a></li>
@@ -36,14 +42,14 @@
 
   <h2>Bindings</h2>
   <ul>
-    <li>Python (PyO3, abi3): <code>ffi/python</code></li>
+    <li>Python (PyO3, abi3, Python 3.9+): <code>ffi/python</code></li>
     <li>WebAssembly (wasm-bindgen): <code>ffi/wasm</code></li>
     <li>C ABI: <code>ffi/c</code></li>
     <li>Go (cgo over the C ABI): <code>ffi/go</code></li>
   </ul>
 
-  <p class="muted">This is a static page, written by hand. It is not generated from the Markdown
-  files, and it has no build step.</p>
+  <p class="muted">These pages are written by hand, with no generator and no build step. Status: pre-release.
+  Nothing is published to crates.io, PyPI or a Go proxy yet.</p>
 </main>
 </body>
 </html>
