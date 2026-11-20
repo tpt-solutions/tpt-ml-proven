@@ -5,63 +5,87 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>tpt-ml-proven in the browser</title>
   <style>
-    body { font-family: system-ui, sans-serif; margin: 16px; color: #1d1d1f; }
-    canvas { border: 1px solid #c7c7cc; border-radius: 6px; max-width: 100%; }
+    body { font-family: system-ui, sans-serif; margin: 16px; color: #1d1d1f; line-height: 1.5; }
+    canvas { border: 1px solid #c7c7cc; border-radius: 6px; max-width: 100%; height: auto; }
     code { background: #f2f2f7; padding: 1px 4px; border-radius: 4px; }
+    .error { color: #b00020; }
+    .muted { color: #6e6e73; }
   </style>
 </head>
 <body>
   <h1>KMeans in the browser</h1>
-  <p>Random points are clustered with <code>KMeansModel</code>, which runs as WebAssembly. Press the button for new points.</p>
+  <p>Random points are clustered by <code>KMeansModel</code>, which runs as WebAssembly. Crosses mark the
+  fitted centres. Press the button for new points.</p>
+  <p class="error" id="error" hidden></p>
   <p><label>Clusters <input id="k" type="number" min="1" max="8" value="3"></label>
-     <button id="run">New points and fit</button></p>
-  <canvas id="plot" width="480" height="360"></canvas>
-  <p id="status"></p>
+     <button id="run" disabled>New points and fit</button></p>
+  <canvas id="plot" width="480" height="360" aria-label="Scatter plot of clustered points"></canvas>
+  <p id="status">Loading the WebAssembly module…</p>
+  <p class="muted">Build the web package first with <code>node scripts/build.mjs</code> in <code>ffi/wasm</code>,
+  then serve the folder over HTTP (opening the file directly blocks module loading in most browsers).</p>
 
   <script type="module">
     // The `web` build: call the default export once before using any class.
     import init, { KMeansModel } from "../pkg-web/tpt_ml_proven_wasm.js";
+    import { COLOURS, POINT_COUNT, clampK, describeFit, fitClusters, makePoints } from "./app.js";
 
-    const colours = ["#0a84ff", "#ff9f0a", "#30d158", "#bf5af2", "#ff453a", "#64d2ff", "#ffd60a", "#8e8e93"];
     const canvas = document.getElementById("plot");
     const context = canvas.getContext("2d");
+    const status = document.getElementById("status");
+    const errorBox = document.getElementById("error");
+    const button = document.getElementById("run");
+    const kInput = document.getElementById("k");
 
-    function randomPoints(count) {
-      const points = new Float64Array(count * 2);
-      for (let i = 0; i < count; i++) {
-        const centre = i % 3;
-        points[2 * i] = 0.2 + 0.3 * centre + 0.12 * (Math.random() - 0.5) * 2;
-        points[2 * i + 1] = 0.3 + 0.2 * ((centre * 7) % 3) + 0.12 * (Math.random() - 0.5) * 2;
-      }
-      return points;
+    function toCanvas(x, y) {
+      return [x * canvas.width, (1 - y) * canvas.height];
     }
 
-    function draw(points, labels) {
+    function draw(points, result) {
       context.clearRect(0, 0, canvas.width, canvas.height);
-      for (let i = 0; i < labels.length; i++) {
-        context.fillStyle = colours[labels[i] % colours.length];
+      const n = result.labels.length;
+      for (let i = 0; i < n; i++) {
+        const [px, py] = toCanvas(points[2 * i], points[2 * i + 1]);
+        context.fillStyle = COLOURS[result.labels[i] % COLOURS.length];
         context.beginPath();
-        context.arc(points[2 * i] * canvas.width, (1 - points[2 * i + 1]) * canvas.height, 5, 0, 2 * Math.PI);
+        context.arc(px, py, 5, 0, 2 * Math.PI);
         context.fill();
       }
+      context.strokeStyle = "#1d1d1f";
+      context.lineWidth = 2.5;
+      for (const [cx, cy] of result.centers) {
+        const [px, py] = toCanvas(cx, cy);
+        context.beginPath();
+        context.moveTo(px - 9, py - 9); context.lineTo(px + 9, py + 9);
+        context.moveTo(px + 9, py - 9); context.lineTo(px - 9, py + 9);
+        context.stroke();
+      }
     }
 
-    function run(points) {
-      const k = Math.max(1, Math.min(8, Number(document.getElementById("k").value) || 3));
-      const model = new KMeansModel({ nClusters: k, seed: 7 });
-      model.fit(points, 2);
-      draw(points, model.labels);
-      document.getElementById("status").textContent =
-        `${points.length / 2} points, ${k} clusters, inertia ${model.inertia.toFixed(3)}, ${model.nIter} iterations`;
+    let points = makePoints(POINT_COUNT);
+
+    function run() {
+      const k = clampK(kInput.value);
+      kInput.value = k;
+      const result = fitClusters(KMeansModel, points, k);
+      draw(points, result);
+      status.textContent = describeFit(result, POINT_COUNT);
     }
 
-    await init();
-    let points = randomPoints(240);
-    run(points);
-    document.getElementById("run").addEventListener("click", () => {
-      points = randomPoints(240);
-      run(points);
+    try {
+      await init();
+      button.disabled = false;
+      run();
+    } catch (err) {
+      errorBox.hidden = false;
+      errorBox.textContent = `Could not load the WebAssembly module: ${err}. Build ffi/wasm/pkg-web and serve this folder over HTTP.`;
+      status.textContent = "";
+    }
+
+    button.addEventListener("click", () => {
+      points = makePoints(POINT_COUNT);
+      run();
     });
+    kInput.addEventListener("change", run);
   </script>
 </body>
 </html>

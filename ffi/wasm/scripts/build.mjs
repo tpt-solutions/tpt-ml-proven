@@ -53,6 +53,12 @@ for (const { target, out, main, module, sideEffects } of targets) {
   } else {
     delete pkg.module;
   }
+  // The web and bundler builds are ES modules; the nodejs build is CommonJS.
+  if (target === "nodejs") {
+    delete pkg.type;
+  } else {
+    pkg.type = "module";
+  }
   writeFileSync(join(root, out, "package.json"), JSON.stringify(pkg, null, 2) + "\n");
   console.log(`wrote ${out}/package.json (${target})`);
 }

@@ -170,7 +170,7 @@ jobs:
       - run: cargo install wasm-pack --locked
       # Builds the nodejs, web and bundler packages, and writes each package.json from the template.
       - run: node scripts/build.mjs
-      - run: node --test tests/bindings.test.mjs tests/persistence.test.mjs tests/trees_settings.test.mjs tests/ensemble_settings.test.mjs tests/web-target.test.mjs
+      - run: node --test tests/bindings.test.mjs tests/persistence.test.mjs tests/trees_settings.test.mjs tests/ensemble_settings.test.mjs tests/web-target.test.mjs tests/web-demo.test.mjs
 
   # C ABI tests, and a check that the committed header matches the Rust source.
   c-abi:
