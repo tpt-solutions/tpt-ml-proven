@@ -423,8 +423,6 @@ fn nearest_row<F: Float>(row: &[F], centers: &[F], k: usize, cols: usize) -> (us
     best
 }
 
-/// Calls `f(r, row)` for every sample. A contiguous view is used in place. Other
-/// views have each row copied into one reused buffer.
 /// Each row of a sparse matrix as its column indices, in increasing order, and their values.
 pub(crate) fn sparse_rows<F: Float, X: ArrayView<Elem = F>>(
     x: &X,
@@ -467,6 +465,8 @@ pub(crate) fn sparse_sq_dist<F: Float>(ai: &[usize], av: &[F], bi: &[usize], bv:
     acc
 }
 
+/// Calls `f(r, row)` for every sample. A contiguous view is used in place. Other
+/// views have each row copied into one reused buffer.
 pub(crate) fn for_each_row<F: Float, X: ArrayView<Elem = F>>(
     x: &X,
     mut f: impl FnMut(usize, &[F]),

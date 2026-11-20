@@ -118,3 +118,32 @@ The sparse path always needs less memory below about 50% density, because a stor
 16 bytes against 8 for a dense entry. It is faster only below about 3% density, where the dense
 pass spends most of its time on zeros. The estimator uses the form the input is stored in. It
 does not switch between them by density, so choose the CSR form for sparse data at low density.
+
+## Phase 14: measurements of the single-thread kernel
+
+Single thread, 1,000,000 × 50 `f32`, k = 8, 20 iterations. Each variant ran interleaved with the
+baseline binary, five runs each, and the minimum is reported. The machine was shared with other
+applications during these runs, so the absolute times are higher than in the table above. The
+comparisons between variants, run back to back, are the reliable part.
+
+| Variant | Minimum | Outcome |
+| --- | --- | --- |
+| Baseline (committed kernel) | 1.34 s | reference |
+| Argmin on `‖c‖² − 2x·c`, exact distance for the inertia | 1.44 s | slower, kept out |
+| Argmin with the inertia taken from the score (plus `‖x‖²`) | 1.95 s | slower, kept out |
+| Four centres per block, same arithmetic order as `sq_dist` | 2.78 s | slower, kept out |
+| Hull tracking (`lo`/`hi`) removed, for measurement only | 1.22 s | 13% of the time; kept, see below |
+
+The argmin rewrite does one dot product per centre instead of a difference and a product per
+coordinate, but the generic `dot` compiled to slower code than the existing `sq_dist`, so the
+saving was lost. The four-centre block is slower because its indexed loops do not vectorise the
+way `sq_dist`'s zipped chunk iterators do.
+
+The hull tracking costs about 13% of the single-thread time. It backs the `kmeans.centers_in_hull`
+contract. The contract requires a runtime check, and the check needs the per-coordinate range of
+each cluster, so the tracking stays until a cheaper check with the same guarantee is found.
+
+On this machine the 2× target was not measured under quiet conditions. Single runs of
+scikit-learn ranged from 1.39 s to 2.95 s on one thread, and from 0.38 s to 1.34 s on 20 threads,
+while the same runs of tpt-ml-proven ranged from 1.34 s to 1.61 s and from 0.42 s to 1.73 s. The
+two sides were not measured back to back under the same conditions, so no ratio is claimed here.
