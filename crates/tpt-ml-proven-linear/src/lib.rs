@@ -85,6 +85,134 @@ fn centre<F: Float, X: ArrayView<Elem = F>, Y: TargetView<Elem = F>>(
     })
 }
 
+/// The centred Gram matrix `XᵀX − n·μμᵀ` and the centred `Xᵀy`, computed from the non-zeros of a
+/// sparse matrix. Nothing dense is built: the centring is applied to the sums analytically.
+struct CentredGram {
+    /// Row-major `d × d`.
+    g: Vec<f64>,
+    xty: Vec<f64>,
+    mean: Vec<f64>,
+    y_mean: f64,
+    n: usize,
+    d: usize,
+}
+
+/// Builds the centred Gram statistics from the non-zeros of `x`. Its work is proportional to the
+/// sum over rows of the squared number of non-zeros in each row, not to `rows × cols`.
+fn centred_gram<F: Float, X: ArrayView<Elem = F>, Y: TargetView<Elem = F>>(
+    x: &X,
+    y: &Y,
+) -> Result<CentredGram, Error> {
+    let (rows, d) = (x.rows(), x.cols());
+    if rows == 0 || d == 0 {
+        return Err(Error::EmptyInput);
+    }
+    if y.len() != rows {
+        return Err(Error::Shape(ShapeError {
+            rows,
+            cols: d,
+            reason: "target length differs from the number of rows",
+        }));
+    }
+    if !x.all_finite() {
+        return Err(Error::NonFinite { what: "X" });
+    }
+    let raw_y: Vec<f64> = (0..rows).map(|i| y.get(i).to_f64()).collect();
+    if raw_y.iter().any(|v| !v.is_finite()) {
+        return Err(Error::NonFinite { what: "y" });
+    }
+    let mut sum = vec![0.0_f64; d];
+    let mut xty = vec![0.0_f64; d];
+    let mut g = vec![0.0_f64; d * d];
+    let mut nz: Vec<(usize, f64)> = Vec::new();
+    for (r, &yr) in raw_y.iter().enumerate() {
+        nz.clear();
+        x.for_each_nonzero(r, |c, v| nz.push((c, v.to_f64())));
+        for &(a, va) in &nz {
+            sum[a] += va;
+            xty[a] += va * yr;
+            for &(b, vb) in &nz {
+                g[a * d + b] += va * vb;
+            }
+        }
+    }
+    let n = rows as f64;
+    let y_sum: f64 = raw_y.iter().sum();
+    for a in 0..d {
+        xty[a] -= sum[a] * y_sum / n;
+        for b in 0..d {
+            g[a * d + b] -= sum[a] * sum[b] / n;
+        }
+    }
+    Ok(CentredGram {
+        g,
+        xty,
+        mean: sum.iter().map(|s| s / n).collect(),
+        y_mean: y_sum / n,
+        n: rows,
+        d,
+    })
+}
+
+/// Elastic-net coordinate descent on the centred Gram statistics. The same sweeps as the dense
+/// solver, written so that each coordinate's partial residual comes from the Gram matrix.
+/// Returns the coefficients, the sweeps used, and whether the stopping rule was met.
+fn elastic_net_gram(
+    s: &CentredGram,
+    lambda1: f64,
+    lambda2: f64,
+    max_iter: usize,
+    tol: f64,
+) -> (Vec<f64>, usize, bool) {
+    let (n, d) = (s.n as f64, s.d);
+    let mut coef = vec![0.0_f64; d];
+    let mut iterations = 0;
+    let mut converged = false;
+    for sweep in 0..max_iter {
+        iterations = sweep + 1;
+        let mut max_change = 0.0_f64;
+        let mut max_coef = 0.0_f64;
+        for j in 0..d {
+            let old = coef[j];
+            let g_jj = s.g[j * d + j];
+            // x_jᵀ r = x_jᵀy − Σₖ G_jk w_k. The j-th term is added back, as the partial
+            // residual leaves coefficient j out.
+            let fitted_dot: f64 = (0..d).map(|k| s.g[j * d + k] * coef[k]).sum();
+            let rho = (s.xty[j] - fitted_dot + g_jj * old) / n;
+            let denom = g_jj / n + lambda2;
+            let new = if denom == 0.0 {
+                0.0
+            } else {
+                soft_threshold(rho, lambda1) / denom
+            };
+            coef[j] = new;
+            max_change = max_change.max((new - old).abs());
+            max_coef = max_coef.max(new.abs());
+        }
+        if max_change <= tol * max_coef {
+            converged = true;
+            break;
+        }
+    }
+    (coef, iterations, converged)
+}
+
+/// [`kkt_violation`] written with the Gram statistics instead of the dense matrix.
+fn kkt_gram(s: &CentredGram, coef: &[f64], lambda1: f64, lambda2: f64) -> f64 {
+    let (n, d) = (s.n as f64, s.d);
+    (0..d)
+        .map(|j| {
+            let fitted_dot: f64 = (0..d).map(|k| s.g[j * d + k] * coef[k]).sum();
+            let g = -(s.xty[j] - fitted_dot) / n + lambda2 * coef[j];
+            if coef[j] != 0.0 {
+                (g + lambda1 * coef[j].signum()).abs()
+            } else {
+                (g.abs() - lambda1).max(0.0)
+            }
+        })
+        .fold(0.0_f64, f64::max)
+}
+
 /// Solves `a·x = b` for symmetric positive definite `a` (row-major, `d × d`) by Cholesky.
 pub(crate) fn cholesky_solve(a: &[f64], b: &[f64], d: usize) -> Option<Vec<f64>> {
     let mut l = vec![0.0_f64; d * d];
@@ -229,22 +357,30 @@ impl<F: Float> SupervisedEstimator for Ridge<F> {
                 reason: "must be finite and non-negative",
             });
         }
-        let c = centre(&x, &y)?;
-        let d = c.cols;
-        requires!(c.rows >= 1, "ridge.rows_positive");
-        requires!(self.alpha >= 0.0, "ridge.alpha_nonneg");
-        // (XᵀX + αI) w = Xᵀy, on centred data.
-        let mut gram = vec![0.0_f64; d * d];
-        let mut xty = vec![0.0_f64; d];
-        for r in 0..c.rows {
-            for i in 0..d {
-                let xi = c.x[r * d + i];
-                xty[i] += xi * c.y[r];
-                for j in 0..d {
-                    gram[i * d + j] += xi * c.x[r * d + j];
+        // A sparse matrix is never copied into a dense buffer: its centred Gram statistics come
+        // from the non-zeros. A dense one is centred as before.
+        let (rows, d, mut gram, xty, x_mean, y_mean) = if x.is_sparse() {
+            let s = centred_gram(&x, &y)?;
+            (s.n, s.d, s.g, s.xty, s.mean, s.y_mean)
+        } else {
+            let c = centre(&x, &y)?;
+            let d = c.cols;
+            let mut gram = vec![0.0_f64; d * d];
+            let mut xty = vec![0.0_f64; d];
+            for r in 0..c.rows {
+                for i in 0..d {
+                    let xi = c.x[r * d + i];
+                    xty[i] += xi * c.y[r];
+                    for j in 0..d {
+                        gram[i * d + j] += xi * c.x[r * d + j];
+                    }
                 }
             }
-        }
+            (c.rows, d, gram, xty, c.x_mean, c.y_mean)
+        };
+        requires!(rows >= 1, "ridge.rows_positive");
+        requires!(self.alpha >= 0.0, "ridge.alpha_nonneg");
+        // (XᵀX + αI) w = Xᵀy, on centred data.
         for i in 0..d {
             gram[i * d + i] += self.alpha;
         }
@@ -261,7 +397,7 @@ impl<F: Float> SupervisedEstimator for Ridge<F> {
             })
             .fold(0.0_f64, f64::max);
         ensures!(normal_residual <= 1e-8 * scale, "ridge.normal_equations");
-        let intercept = c.y_mean - coef.iter().zip(&c.x_mean).map(|(w, m)| w * m).sum::<f64>();
+        let intercept = y_mean - coef.iter().zip(&x_mean).map(|(w, m)| w * m).sum::<f64>();
         self.fitted = Some((coef, intercept));
         Ok(())
     }
@@ -387,6 +523,9 @@ impl<F: Float> SupervisedEstimator for ElasticNet<F> {
                 reason: "must be in [0, 1]",
             });
         }
+        if x.is_sparse() {
+            return self.fit_gram(&x, &y);
+        }
         let c = centre(&x, &y)?;
         let (n, d) = (c.rows, c.cols);
         requires!(n >= 1, "elasticnet.rows_positive");
@@ -445,6 +584,37 @@ impl<F: Float> SupervisedEstimator for ElasticNet<F> {
             );
         }
         let intercept = c.y_mean - coef.iter().zip(&c.x_mean).map(|(w, m)| w * m).sum::<f64>();
+        self.fitted = Some((coef, intercept, iterations));
+        Ok(())
+    }
+}
+
+impl<F: Float> ElasticNet<F> {
+    /// The fit for sparse input: coordinate descent on the centred Gram statistics. The
+    /// parameters have already been checked by [`SupervisedEstimator::fit`].
+    fn fit_gram<X: ArrayView<Elem = F>, Y: TargetView<Elem = F>>(
+        &mut self,
+        x: &X,
+        y: &Y,
+    ) -> Result<(), Error> {
+        let s = centred_gram(x, y)?;
+        requires!(s.n >= 1, "elasticnet.rows_positive");
+        requires!(self.alpha >= 0.0, "elasticnet.alpha_nonneg");
+        requires!(self.l1_ratio >= 0.0, "elasticnet.l1_ratio_nonneg");
+        requires!(self.l1_ratio <= 1.0, "elasticnet.l1_ratio_le_one");
+        let lambda1 = self.alpha * self.l1_ratio;
+        let lambda2 = self.alpha * (1.0 - self.l1_ratio);
+        let (coef, iterations, converged) =
+            elastic_net_gram(&s, lambda1, lambda2, self.max_iter, self.tol);
+        ensures!(self.l1_ratio <= 1.0, "elasticnet.l1_ratio_within_unit");
+        if converged {
+            // At convergence the KKT conditions hold up to the stopping rule's slack.
+            ensures!(
+                kkt_gram(&s, &coef, lambda1, lambda2) <= KKT_SLACK,
+                "elasticnet.kkt"
+            );
+        }
+        let intercept = s.y_mean - coef.iter().zip(&s.mean).map(|(w, m)| w * m).sum::<f64>();
         self.fitted = Some((coef, intercept, iterations));
         Ok(())
     }

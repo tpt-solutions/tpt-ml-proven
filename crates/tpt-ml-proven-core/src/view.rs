@@ -30,6 +30,12 @@ pub trait ArrayView {
     /// Panics if `row >= self.rows()` or `col >= self.cols()`.
     fn get(&self, row: usize, col: usize) -> Self::Elem;
 
+    /// Whether the matrix is stored sparsely. Estimators use this to take a path that works from
+    /// the non-zeros alone, instead of copying the matrix into a dense buffer. Defaults to `false`.
+    fn is_sparse(&self) -> bool {
+        false
+    }
+
     /// Returns row `i` as a contiguous slice when the layout allows it, so hot
     /// loops can avoid per-element indexing. Returns `None` otherwise.
     fn row_slice(&self, _i: usize) -> Option<&[Self::Elem]> {
@@ -129,6 +135,10 @@ impl<T: ArrayView + ?Sized> ArrayView for &T {
 
     fn get(&self, row: usize, col: usize) -> T::Elem {
         T::get(self, row, col)
+    }
+
+    fn is_sparse(&self) -> bool {
+        T::is_sparse(self)
     }
 
     fn row_slice(&self, i: usize) -> Option<&[T::Elem]> {
@@ -270,6 +280,10 @@ impl<T: Float> ArrayView for CsrView<'_, T> {
     /// Only the stored values need checking: an implicit entry is zero, which is finite.
     fn all_finite(&self) -> bool {
         self.data.iter().all(|v| v.is_finite())
+    }
+
+    fn is_sparse(&self) -> bool {
+        true
     }
 }
 
