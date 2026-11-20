@@ -147,3 +147,20 @@ On this machine the 2× target was not measured under quiet conditions. Single r
 scikit-learn ranged from 1.39 s to 2.95 s on one thread, and from 0.38 s to 1.34 s on 20 threads,
 while the same runs of tpt-ml-proven ranged from 1.34 s to 1.61 s and from 0.42 s to 1.73 s. The
 two sides were not measured back to back under the same conditions, so no ratio is claimed here.
+
+## Phase 14: interleaved comparison on a quiet machine
+
+Five rounds, each running scikit-learn 1.9.0 (its script's own best of three) and the Rust
+example (`bench_kmeans`, one run per thread count) back to back, on 1,000,000 × 50 `f32`, k = 8,
+20 iterations, tol = 0. Times in seconds.
+
+| Threads | scikit-learn min / median | tpt-ml-proven min / median | Ratio of minima |
+| --- | --- | --- | --- |
+| 1 | 1.234 / 1.258 | 1.400 / 1.410 | 1.13 (tpt-ml-proven slower) |
+| 20 | 0.343 / 0.356 | 0.298 / 0.375 | 0.87 (tpt-ml-proven faster at the minimum) |
+
+The 20-thread runs vary more than the single-thread runs (scikit-learn from 0.34 to 0.42, and
+tpt-ml-proven from 0.30 to 0.49), so the all-core result is best read as level. The 2× target is
+not met on either side: a single-thread gap of 13% would need about a 2.3× gain to reach 2×
+against scikit-learn. The Phase 14 kernel experiments above did not produce that gain, and the
+remaining options are explicit SIMD or a change to the contract checks.
