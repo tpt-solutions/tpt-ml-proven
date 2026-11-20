@@ -125,6 +125,31 @@ jobs:
       - run: python -m pytest -q tests
         working-directory: ffi/python
 
+  # The Python tour notebook, run end to end against the wheel just built. The executed copy goes to
+  # a scratch directory, so the committed notebook (with its outputs) is never rewritten.
+  notebook:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ffi/python
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ffi/python
+      - run: python -m pip install maturin
+      - run: maturin build --release --out dist
+      - run: python -m pip install --force-reinstall dist/*.whl
+        shell: bash
+      - run: python -m pip install nbconvert ipykernel pandas matplotlib numpy scikit-learn==1.9.0
+      - run: python -m jupyter nbconvert --to notebook --execute examples/tour.ipynb --output tour-executed.ipynb --output-dir "$RUNNER_TEMP"
+        env:
+          MPLBACKEND: Agg
+
   # WebAssembly build with wasm-pack, tested under Node.
   wasm-bindings:
     runs-on: ubuntu-latest
