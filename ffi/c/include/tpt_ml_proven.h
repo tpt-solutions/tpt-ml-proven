@@ -1361,4 +1361,159 @@ enum tpml_TpmlStatus tpml_random_forest_classifier_score(const struct tpml_TpmlR
                                                          const double *y,
                                                          double *out);
 
+/**
+ * Sets the fewest rows a node needs before it may be split in a decision tree regressor
+ * (default 2). Call before `fit`.
+ *
+ * # Safety
+ * `h` must be a live handle.
+ */
+enum tpml_TpmlStatus tpml_decision_tree_regressor_set_min_samples_split(struct tpml_TpmlDecisionTreeRegressor *h,
+                                                                        uintptr_t n);
+
+/**
+ * Limits a decision tree regressor to `n` leaves, grown best-first. Zero means no limit
+ * (the default). Call before `fit`.
+ *
+ * # Safety
+ * `h` must be a live handle.
+ */
+enum tpml_TpmlStatus tpml_decision_tree_regressor_set_max_leaf_nodes(struct tpml_TpmlDecisionTreeRegressor *h,
+                                                                     uintptr_t n);
+
+/**
+ * Writes each feature's share of the impurity reduction into `out`, which holds one value per
+ * feature. Reports `NotFitted` before `fit`.
+ *
+ * # Safety
+ * `h` must be a live handle and `out` valid for `out_len` writes.
+ */
+enum tpml_TpmlStatus tpml_decision_tree_regressor_feature_importances(const struct tpml_TpmlDecisionTreeRegressor *h,
+                                                                      double *out,
+                                                                      uintptr_t out_len);
+
+/**
+ * Sets the fewest rows a node needs before it may be split in a decision tree classifier
+ * (default 2). Call before `fit`.
+ *
+ * # Safety
+ * `h` must be a live handle.
+ */
+enum tpml_TpmlStatus tpml_decision_tree_classifier_set_min_samples_split(struct tpml_TpmlDecisionTreeClassifier *h,
+                                                                         uintptr_t n);
+
+/**
+ * Limits a decision tree classifier to `n` leaves, grown best-first. Zero means no limit (the
+ * default). Call before `fit`.
+ *
+ * # Safety
+ * `h` must be a live handle.
+ */
+enum tpml_TpmlStatus tpml_decision_tree_classifier_set_max_leaf_nodes(struct tpml_TpmlDecisionTreeClassifier *h,
+                                                                      uintptr_t n);
+
+/**
+ * Writes each feature's share of the impurity reduction into `out`, which holds one value per
+ * feature. Reports `NotFitted` before `fit`.
+ *
+ * # Safety
+ * `h` must be a live handle and `out` valid for `out_len` writes.
+ */
+enum tpml_TpmlStatus tpml_decision_tree_classifier_feature_importances(const struct tpml_TpmlDecisionTreeClassifier *h,
+                                                                       double *out,
+                                                                       uintptr_t out_len);
+
+/**
+ * Sets the fewest rows a node needs before it may be split in each boosting tree (default 2).
+ * Call before `fit`.
+ *
+ * # Safety
+ * `h` must be a live handle.
+ */
+enum tpml_TpmlStatus tpml_gradient_boosting_set_min_samples_split(struct tpml_TpmlGradientBoosting *h,
+                                                                  uintptr_t n);
+
+/**
+ * Limits each boosting tree to `n` leaves, grown best-first. Zero means no limit (the default).
+ * Call before `fit`.
+ *
+ * # Safety
+ * `h` must be a live handle.
+ */
+enum tpml_TpmlStatus tpml_gradient_boosting_set_max_leaf_nodes(struct tpml_TpmlGradientBoosting *h,
+                                                               uintptr_t n);
+
+/**
+ * Writes each feature's share of the squared-error reduction over all rounds into `out`, which
+ * holds one value per feature. Reports `NotFitted` before `fit`.
+ *
+ * # Safety
+ * `h` must be a live handle and `out` valid for `out_len` writes.
+ */
+enum tpml_TpmlStatus tpml_gradient_boosting_feature_importances(const struct tpml_TpmlGradientBoosting *h,
+                                                                double *out,
+                                                                uintptr_t out_len);
+
+/**
+ * Sets the fewest rows a node needs before it may be split in each forest tree (default 2).
+ * Call before `fit`.
+ *
+ * # Safety
+ * `h` must be a live handle.
+ */
+enum tpml_TpmlStatus tpml_random_forest_regressor_set_min_samples_split(struct tpml_TpmlRandomForestRegressor *h,
+                                                                        uintptr_t n);
+
+/**
+ * Limits each forest tree to `n` leaves, grown best-first. Zero means no limit (the default).
+ * Call before `fit`.
+ *
+ * # Safety
+ * `h` must be a live handle.
+ */
+enum tpml_TpmlStatus tpml_random_forest_regressor_set_max_leaf_nodes(struct tpml_TpmlRandomForestRegressor *h,
+                                                                     uintptr_t n);
+
+/**
+ * Writes each feature's average share of the impurity reduction into `out`, which holds one
+ * value per feature. Reports `NotFitted` before `fit`.
+ *
+ * # Safety
+ * `h` must be a live handle and `out` valid for `out_len` writes.
+ */
+enum tpml_TpmlStatus tpml_random_forest_regressor_feature_importances(const struct tpml_TpmlRandomForestRegressor *h,
+                                                                      double *out,
+                                                                      uintptr_t out_len);
+
+/**
+ * Sets the fewest rows a node needs before it may be split in each forest tree (default 2).
+ * Call before `fit`.
+ *
+ * # Safety
+ * `h` must be a live handle.
+ */
+enum tpml_TpmlStatus tpml_random_forest_classifier_set_min_samples_split(struct tpml_TpmlRandomForestClassifier *h,
+                                                                         uintptr_t n);
+
+/**
+ * Limits each forest tree to `n` leaves, grown best-first. Zero means no limit (the default).
+ * Call before `fit`.
+ *
+ * # Safety
+ * `h` must be a live handle.
+ */
+enum tpml_TpmlStatus tpml_random_forest_classifier_set_max_leaf_nodes(struct tpml_TpmlRandomForestClassifier *h,
+                                                                      uintptr_t n);
+
+/**
+ * Writes each feature's average share of the impurity reduction into `out`, which holds one
+ * value per feature. Reports `NotFitted` before `fit`.
+ *
+ * # Safety
+ * `h` must be a live handle and `out` valid for `out_len` writes.
+ */
+enum tpml_TpmlStatus tpml_random_forest_classifier_feature_importances(const struct tpml_TpmlRandomForestClassifier *h,
+                                                                       double *out,
+                                                                       uintptr_t out_len);
+
 #endif  /* TPT_ML_PROVEN_H */
