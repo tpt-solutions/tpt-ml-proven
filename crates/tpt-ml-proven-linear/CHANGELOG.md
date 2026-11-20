@@ -10,7 +10,8 @@ All notable changes to `tpt-ml-proven-linear` are recorded here. The format foll
 - Sparse input for `Ridge`, `ElasticNet` and `Lasso` without copying the matrix: the centred
   Gram statistics are built from the non-zeros, and coordinate descent runs on them. Results
   agree with the dense path to about 1e-9 for Ridge and 1e-6 for the coordinate-descent models
-  (`tests/sparse.rs`). `Lasso`'s own optimality check still copies the matrix.
+  (`tests/sparse.rs`). `Lasso`'s optimality check reads the same statistics, so it does not copy
+  the matrix either.
 - `ArrayView::is_sparse`, which a view uses to say it is stored sparsely (default `false`).
 - `Ridge` (closed form), `ElasticNet` and `Lasso` (coordinate descent), matching
   scikit-learn's objectives. Parity tests at 1e-6 on committed fixtures.

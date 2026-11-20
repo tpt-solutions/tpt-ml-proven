@@ -642,15 +642,27 @@ impl<F: Float> SupervisedEstimator for Lasso<F> {
         X: ArrayView<Elem = F>,
         Y: TargetView<Elem = F>,
     {
-        // Copy the data first: the inner fit takes ownership of the views.
+        // The optimality check needs the data after the inner fit has taken the views. A sparse
+        // matrix keeps its centred Gram statistics instead, which the check reads. A dense one
+        // is copied as before.
         let (rows, cols) = (x.rows(), x.cols());
-        let mut data = Vec::with_capacity(rows * cols);
-        for r in 0..rows {
-            for c in 0..cols {
-                data.push(x.get(r, c).to_f64());
+        let sparse_stats = if x.is_sparse() {
+            Some(centred_gram(&x, &y)?)
+        } else {
+            None
+        };
+        let (data, target) = if sparse_stats.is_some() {
+            (Vec::new(), Vec::new())
+        } else {
+            let mut data = Vec::with_capacity(rows * cols);
+            for r in 0..rows {
+                for c in 0..cols {
+                    data.push(x.get(r, c).to_f64());
+                }
             }
-        }
-        let target: Vec<f64> = (0..y.len()).map(|i| y.get(i).to_f64()).collect();
+            let target: Vec<f64> = (0..y.len()).map(|i| y.get(i).to_f64()).collect();
+            (data, target)
+        };
         SupervisedEstimator::fit(&mut self.0, x, y)?;
 
         // The inner fit has already rejected invalid input with its own errors, so these
@@ -661,6 +673,12 @@ impl<F: Float> SupervisedEstimator for Lasso<F> {
         // The lasso optimality conditions are only guaranteed at convergence. A run that
         // hit `max_iter` stopped early, so it is not checked here.
         if *iterations < self.0.max_iter {
+            if let Some(s) = &sparse_stats {
+                // Lasso is the elastic net with no ridge term, so λ₂ = 0.
+                let alpha = self.0.alpha;
+                ensures!(kkt_gram(s, coef, alpha, 0.0) <= KKT_SLACK, "lasso.kkt");
+                return Ok(());
+            }
             let nf = rows as f64;
             let means: Vec<f64> = (0..cols)
                 .map(|j| (0..rows).map(|r| data[r * cols + j]).sum::<f64>() / nf)
@@ -875,5 +893,36 @@ mod tests {
             Predictor::predict(&m, DenseView::new(&x[..3], 3, 1).unwrap()),
             Err(Error::Shape(_))
         ));
+    }
+}
+
+#[cfg(test)]
+mod gram_check_tests {
+    use super::*;
+    use tpt_ml_proven_core::DenseView;
+
+    #[test]
+    fn the_gram_optimality_check_matches_the_dense_one() {
+        let (rows, cols) = (25, 4);
+        let mut seed = 3u64;
+        let mut next = || {
+            seed = seed
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
+            (seed >> 11) as f64 / (1u64 << 53) as f64
+        };
+        let x: Vec<f64> = (0..rows * cols).map(|_| next() * 4.0 - 2.0).collect();
+        let y: Vec<f64> = (0..rows).map(|_| next() * 3.0).collect();
+        // Some coefficients are exactly zero, as Lasso produces.
+        let coef = vec![0.7, 0.0, -0.3, 0.0];
+        let xv = DenseView::new(&x, rows, cols).unwrap();
+        let yv = &y[..];
+        let c = centre(&xv, &yv).unwrap();
+        let s = centred_gram(&xv, &yv).unwrap();
+        for &(lambda1, lambda2) in &[(0.2, 0.0), (0.05, 0.1)] {
+            let dense = kkt_violation(&c, &coef, lambda1, lambda2);
+            let gram = kkt_gram(&s, &coef, lambda1, lambda2);
+            assert!((dense - gram).abs() < 1e-10, "dense {dense} vs gram {gram}");
+        }
     }
 }
