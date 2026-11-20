@@ -101,3 +101,20 @@ Open problems:
 The benchmark job runs in `ci.yml` as a non-blocking report, with results in the job
 summary and as an artifact. It has not yet run on GitHub, so the figures above come from a
 local Windows machine.
+
+## Sparse KMeans against the dense path
+
+Measured with `cargo run --release -p tpt-ml-proven-clustering --example bench_sparse_kmeans`,
+single-threaded, 100,000 × 200 entries, k = 16, 20 iterations (tolerance 0, so every run does the
+same work). The same matrix is fitted as CSR and as dense. The labels agree at every density.
+
+| Density | Non-zeros | CSR storage | Dense storage | Sparse fit | Dense fit |
+| --- | --- | --- | --- | --- | --- |
+| 1% | 1.0 M | 4.0 MB | 160 MB | 0.63 s | 0.75 s |
+| 5% | 1.0 M | 16.8 MB | 160 MB | 1.52 s | 1.30 s |
+| 20% | 4.0 M | 64.8 MB | 160 MB | 4.50 s | 2.59 s |
+
+The sparse path always needs less memory below about 50% density, because a stored non-zero costs
+16 bytes against 8 for a dense entry. It is faster only below about 3% density, where the dense
+pass spends most of its time on zeros. The estimator uses the form the input is stored in. It
+does not switch between them by density, so choose the CSR form for sparse data at low density.

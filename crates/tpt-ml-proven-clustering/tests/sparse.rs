@@ -5,7 +5,7 @@
 //! the same matrix stored densely. The sparse paths measure distances over the non-zeros only.
 
 use tpt_ml_proven_clustering::{Dbscan, Hdbscan};
-use tpt_ml_proven_core::{CsrView, DenseView, UnsupervisedEstimator};
+use tpt_ml_proven_core::{CsrView, DenseView, Predictor, UnsupervisedEstimator};
 
 /// A small deterministic generator, so the cases are reproducible.
 struct Lcg(u64);
@@ -100,4 +100,40 @@ fn hdbscan_sparse_labels_match_dense() {
 
     assert_eq!(sparse_model.labels(), dense_model.labels());
     assert!(dense_model.n_clusters().unwrap() >= 2);
+}
+
+#[test]
+fn kmeans_sparse_agrees_with_dense() {
+    use tpt_ml_proven_clustering::KMeans;
+    let (rows, cols) = (60, 6);
+    let (dense, indptr, indices, data) = grouped(21, rows, cols, 0.6);
+    let csr = CsrView::new(&indptr, &indices, &data, rows, cols).unwrap();
+    let mut sparse_model = KMeans::<f64>::new(2).with_seed(5);
+    UnsupervisedEstimator::fit(&mut sparse_model, csr).unwrap();
+    let mut dense_model = KMeans::<f64>::new(2).with_seed(5);
+    UnsupervisedEstimator::fit(
+        &mut dense_model,
+        DenseView::new(&dense, rows, cols).unwrap(),
+    )
+    .unwrap();
+
+    assert_eq!(sparse_model.labels(), dense_model.labels());
+    let cs = sparse_model.cluster_centers().unwrap().as_slice().to_vec();
+    let cd = dense_model.cluster_centers().unwrap().as_slice().to_vec();
+    for (i, (a, b)) in cs.iter().zip(&cd).enumerate() {
+        assert!(
+            (a - b).abs() <= 1e-9 * (1.0 + b.abs()),
+            "centre[{i}]: sparse {a} vs dense {b}"
+        );
+    }
+    let (is, id) = (
+        sparse_model.inertia().unwrap(),
+        dense_model.inertia().unwrap(),
+    );
+    assert!((is - id).abs() <= 1e-9 * (1.0 + id), "inertia {is} vs {id}");
+
+    let csr = CsrView::new(&indptr, &indices, &data, rows, cols).unwrap();
+    let ps = Predictor::predict(&sparse_model, csr).unwrap();
+    let pd = Predictor::predict(&dense_model, DenseView::new(&dense, rows, cols).unwrap()).unwrap();
+    assert_eq!(ps, pd);
 }

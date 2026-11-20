@@ -7,6 +7,10 @@ All notable changes to `tpt-ml-proven-clustering` are recorded here. The format 
 
 ### Added
 
+- `KMeans` on sparse (CSR) input: a sparse assignment and accumulation pass, with distances from
+  precomputed centre norms, so the matrix is not copied into a dense buffer. The dense path is
+  unchanged. The sparse pass is sequential. Measurements are in `docs/benchmarks.md`. A new
+  example, `bench_sparse_kmeans`, reproduces them.
 - `Dbscan` and `Hdbscan` on sparse (CSR) input: distances are measured over the non-zeros of
   each row, so the input is not copied into a dense buffer. Labels match the dense fit, checked
   in `tests/sparse.rs`. HDBSCAN's pairwise distance matrix is still n × n.

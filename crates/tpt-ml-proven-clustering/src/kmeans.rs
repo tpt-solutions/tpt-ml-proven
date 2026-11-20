@@ -224,9 +224,23 @@ impl<F: Float> UnsupervisedEstimator for KMeans<F> {
         };
         let tol = F::from_f64(self.tol);
 
-        let dense = dense_copy_if_parallel(&x, self.threads);
+        // A sparse matrix keeps its rows sparse and is never copied into a dense buffer.
+        let sparse = x.is_sparse().then(|| sparse_rows(&x, rows));
+        let dense = if sparse.is_some() {
+            None
+        } else {
+            dense_copy_if_parallel(&x, self.threads)
+        };
         let dense = dense.as_deref();
-        let mut current = pass(&x, dense, &centers, k, cols, self.threads);
+        let mut current = run_pass(
+            &x,
+            sparse.as_deref(),
+            dense,
+            &centers,
+            k,
+            cols,
+            self.threads,
+        );
         let mut inertia = current.inertia;
         let mut n_iter = 0;
         let mut converged = false;
@@ -243,7 +257,15 @@ impl<F: Float> UnsupervisedEstimator for KMeans<F> {
             centers = next;
 
             let prev_labels = std::mem::take(&mut current.labels);
-            current = pass(&x, dense, &centers, k, cols, self.threads);
+            current = run_pass(
+                &x,
+                sparse.as_deref(),
+                dense,
+                &centers,
+                k,
+                cols,
+                self.threads,
+            );
             n_iter = iter + 1;
             ensures!(
                 current.inertia <= prev_inertia + descent_slack(prev_inertia),
@@ -292,7 +314,12 @@ impl<F: Float> Predictor for KMeans<F> {
             return Err(Error::NonFinite { what: "X" });
         }
         let c = centers_flat(&fitted.centers);
-        let (labels, _) = assign(&x, None, &c, fitted.centers.rows(), x.cols(), self.threads);
+        let (k, cols) = (fitted.centers.rows(), x.cols());
+        if x.is_sparse() {
+            let rows = sparse_rows(&x, x.rows());
+            return Ok(sparse_pass(&rows, &c, k, cols).labels);
+        }
+        let (labels, _) = assign(&x, None, &c, k, cols, self.threads);
         Ok(labels)
     }
 }
@@ -557,6 +584,110 @@ impl<F: Float> Partial<F> {
                 }
             }
         }
+    }
+}
+
+/// One sweep over sparse rows: the nearest centre of each row, the inertia, and the statistics of
+/// the new clusters, as [`pass`] gives for dense data. Distances use
+/// `‖x − c‖² = ‖c‖² − 2·x·c + ‖x‖²`, so each row is read only at its non-zeros, and the centre
+/// norms are computed once per sweep. The sweep is sequential, so its inertia is summed in row
+/// order.
+fn sparse_pass<F: Float>(
+    rows: &[(Vec<usize>, Vec<F>)],
+    centers: &[F],
+    k: usize,
+    cols: usize,
+) -> Pass<F> {
+    let norms: Vec<F> = (0..k)
+        .map(|c| {
+            centers[c * cols..(c + 1) * cols]
+                .iter()
+                .fold(F::ZERO, |acc, &v| acc + v * v)
+        })
+        .collect();
+    let mut labels = Vec::with_capacity(rows.len());
+    let mut inertia = F::ZERO;
+    let mut stats = Partial::new(k, cols);
+    // Non-zero members of each cluster in each coordinate. Used below for the zeros.
+    let mut nnz = vec![0usize; k * cols];
+    for (idx, val) in rows {
+        let xnorm = val.iter().fold(F::ZERO, |acc, &v| acc + v * v);
+        let mut best = 0;
+        let mut best_d = F::ZERO;
+        for c in 0..k {
+            let dot = idx
+                .iter()
+                .zip(val)
+                .fold(F::ZERO, |acc, (&j, &v)| acc + v * centers[c * cols + j]);
+            let d = norms[c] - (dot + dot) + xnorm;
+            if c == 0 || d < best_d {
+                best = c;
+                best_d = d;
+            }
+        }
+        // Rounding can push a distance that should be zero slightly below it.
+        let d = if best_d < F::ZERO { F::ZERO } else { best_d };
+        labels.push(best);
+        inertia = inertia + d;
+        stats.counts[best] += 1;
+        for (&j, &v) in idx.iter().zip(val) {
+            let i = best * cols + j;
+            stats.sums[i] = stats.sums[i] + v;
+            if nnz[i] == 0 {
+                stats.lo[i] = v;
+                stats.hi[i] = v;
+            } else {
+                if v < stats.lo[i] {
+                    stats.lo[i] = v;
+                }
+                if v > stats.hi[i] {
+                    stats.hi[i] = v;
+                }
+            }
+            nnz[i] += 1;
+        }
+    }
+    // A zero entry is a member value too. It widens a coordinate's range whenever some member
+    // has a zero there, i.e. when the cluster has more members than non-zeros in that column.
+    for c in 0..k {
+        if stats.counts[c] == 0 {
+            continue;
+        }
+        for j in 0..cols {
+            let i = c * cols + j;
+            if nnz[i] == 0 {
+                stats.lo[i] = F::ZERO;
+                stats.hi[i] = F::ZERO;
+            } else if nnz[i] < stats.counts[c] {
+                if stats.lo[i] > F::ZERO {
+                    stats.lo[i] = F::ZERO;
+                }
+                if stats.hi[i] < F::ZERO {
+                    stats.hi[i] = F::ZERO;
+                }
+            }
+        }
+    }
+    Pass {
+        labels,
+        inertia,
+        stats,
+    }
+}
+
+/// The pass for either form of the data: sparse rows when the input is sparse, else [`pass`].
+fn run_pass<F: Float, X: ArrayView<Elem = F>>(
+    x: &X,
+    sparse: Option<&[(Vec<usize>, Vec<F>)]>,
+    dense: Option<&[F]>,
+    centers: &[F],
+    k: usize,
+    cols: usize,
+    threads: usize,
+) -> Pass<F> {
+    match sparse {
+        Some(rows) => sparse_pass(rows, centers, k, cols),
+        None => pass(x, dense, centers, k, cols, threads),
     }
 }
 
