@@ -6,13 +6,14 @@ Forests draw their bootstrap samples differently, so they are checked by propert
 
 import numpy as np
 import pytest
-import sklearn.ensemble as ske
 
 from tpt_ml_proven import (
     GradientBoostingRegressor,
     RandomForestClassifier,
     RandomForestRegressor,
 )
+
+ske = pytest.importorskip("sklearn.ensemble")
 
 
 def regression_data():

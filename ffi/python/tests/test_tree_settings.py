@@ -5,10 +5,11 @@ On continuous data there are no ties, so the trees should agree with scikit-lear
 
 import numpy as np
 import pytest
-import sklearn.base as skb
-import sklearn.tree as sk
 
 from tpt_ml_proven import DecisionTreeClassifier, DecisionTreeRegressor
+
+skb = pytest.importorskip("sklearn.base")
+sk = pytest.importorskip("sklearn.tree")
 
 
 def regression_data():
