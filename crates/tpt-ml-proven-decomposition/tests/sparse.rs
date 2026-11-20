@@ -131,3 +131,78 @@ fn a_nan_stored_in_a_sparse_matrix_is_still_refused() {
     let empty = CsrView::new(&[0, 0, 0], &[], &[] as &[f64], 2, 2).unwrap();
     assert!(empty.all_finite());
 }
+
+/// A non-negative `rows × cols` matrix with roughly `density` of its entries non-zero, as dense
+/// row-major data plus its CSR form. NMF needs non-negative input, so the absolute values of a
+/// random matrix are used.
+fn nonnegative_matrix(
+    seed: u64,
+    rows: usize,
+    cols: usize,
+    density: f64,
+) -> (Vec<f64>, Vec<usize>, Vec<usize>, Vec<f64>) {
+    let (raw, _, _, _) = random_matrix(seed, rows, cols, density);
+    let dense: Vec<f64> = raw.iter().map(|v| v.abs()).collect();
+    let mut indptr = vec![0];
+    let mut indices = Vec::new();
+    let mut data = Vec::new();
+    for r in 0..rows {
+        for c in 0..cols {
+            let v = dense[r * cols + c];
+            if v != 0.0 {
+                indices.push(c);
+                data.push(v);
+            }
+        }
+        indptr.push(indices.len());
+    }
+    (dense, indptr, indices, data)
+}
+
+#[test]
+fn nmf_sparse_agrees_with_dense() {
+    use tpt_ml_proven_decomposition::Nmf;
+    let (rows, cols, k) = (30, 6, 3);
+    let (dense, indptr, indices, data) = nonnegative_matrix(5, rows, cols, 0.4);
+    let csr = CsrView::new(&indptr, &indices, &data, rows, cols).unwrap();
+    // A fixed iteration count (tol 0), so both paths run the same number of updates.
+    let mut sparse_model = Nmf::<f64>::new(k)
+        .with_seed(4)
+        .with_max_iter(60)
+        .with_tol(0.0);
+    UnsupervisedEstimator::fit(&mut sparse_model, csr).unwrap();
+    let mut dense_model = Nmf::<f64>::new(k)
+        .with_seed(4)
+        .with_max_iter(60)
+        .with_tol(0.0);
+    UnsupervisedEstimator::fit(
+        &mut dense_model,
+        DenseView::new(&dense, rows, cols).unwrap(),
+    )
+    .unwrap();
+
+    let hs = sparse_model.components().unwrap().as_slice().to_vec();
+    let hd = dense_model.components().unwrap().as_slice().to_vec();
+    for (i, (a, b)) in hs.iter().zip(&hd).enumerate() {
+        assert!(
+            (a - b).abs() <= 1e-8 * (1.0 + b.abs()),
+            "H[{i}]: sparse {a} vs dense {b}"
+        );
+    }
+    let (es, ed) = (
+        sparse_model.reconstruction_error().unwrap(),
+        dense_model.reconstruction_error().unwrap(),
+    );
+    assert!((es - ed).abs() <= 1e-8 * (1.0 + ed), "error {es} vs {ed}");
+
+    let csr = CsrView::new(&indptr, &indices, &data, rows, cols).unwrap();
+    let ws = Transformer::transform(&sparse_model, csr).unwrap();
+    let wd =
+        Transformer::transform(&dense_model, DenseView::new(&dense, rows, cols).unwrap()).unwrap();
+    for (i, (a, b)) in ws.as_slice().iter().zip(wd.as_slice()).enumerate() {
+        assert!(
+            (a - b).abs() <= 1e-8 * (1.0 + b.abs()),
+            "transform[{i}]: sparse {a} vs dense {b}"
+        );
+    }
+}

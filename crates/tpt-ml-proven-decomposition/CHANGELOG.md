@@ -7,6 +7,10 @@ All notable changes to `tpt-ml-proven-decomposition` are recorded here. The form
 
 ### Added
 
+- `Nmf` on sparse (CSR) input: the products `X·Hᵀ` and `Wᵀ·X` and the reconstruction error are
+  computed from the non-zeros, so the matrix is never copied into a dense buffer. Checked against
+  the dense fit in `tests/sparse.rs`.
+
 - `Pca`, with explained variance and explained variance ratio, total variance and the feature
   mean. `fit`, `transform`, `inverse_transform` and `fit_transform`. Deterministic sign
   convention (largest-magnitude entry positive). Eigendecomposition by a cyclic Jacobi solver

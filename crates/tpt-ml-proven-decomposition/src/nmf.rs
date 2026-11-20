@@ -165,6 +165,112 @@ fn next_unit(state: &mut u64) -> f64 {
     (z >> 11) as f64 / (1u64 << 53) as f64
 }
 
+/// The non-negative data matrix: dense, or as its non-zero entries `(row, col, value)`. The
+/// dense variant calls the dense products; the sparse one only visits the non-zeros, so a sparse
+/// input is never copied into a dense buffer.
+enum Data {
+    Dense(Vec<f64>),
+    Sparse(Vec<(usize, usize, f64)>),
+}
+
+impl Data {
+    /// The mean of all `rows × cols` entries, zeros included.
+    fn mean(&self, rows: usize, cols: usize) -> f64 {
+        let total: f64 = match self {
+            Data::Dense(d) => d.iter().sum(),
+            Data::Sparse(nz) => nz.iter().map(|&(_, _, v)| v).sum(),
+        };
+        total / (rows * cols).max(1) as f64
+    }
+
+    /// `X · Hᵀ`, with `H` of shape `k × cols`: `rows × k`.
+    fn xht(&self, h: &[f64], rows: usize, k: usize, cols: usize) -> Vec<f64> {
+        match self {
+            Data::Dense(d) => matmul_a_bt(d, h, rows, cols, k),
+            Data::Sparse(nz) => {
+                let mut out = vec![0.0_f64; rows * k];
+                for &(r, c, v) in nz {
+                    for p in 0..k {
+                        out[r * k + p] += v * h[p * cols + c];
+                    }
+                }
+                out
+            }
+        }
+    }
+
+    /// `Wᵀ · X`, with `W` of shape `rows × k`: `k × cols`.
+    fn wtx(&self, w: &[f64], rows: usize, k: usize, cols: usize) -> Vec<f64> {
+        match self {
+            Data::Dense(d) => matmul_at_b(w, d, rows, k, cols),
+            Data::Sparse(nz) => {
+                let mut out = vec![0.0_f64; k * cols];
+                for &(r, c, v) in nz {
+                    for p in 0..k {
+                        out[p * cols + c] += w[r * k + p] * v;
+                    }
+                }
+                out
+            }
+        }
+    }
+
+    /// `‖X − W·H‖_F`. The sparse form uses `‖X − WH‖² = Σ_nz (x² − 2·x·(WH)) + ‖WH‖²`, where the
+    /// last term is `Σ (WᵀW ⊙ HHᵀ)`, so no dense product is formed.
+    fn error(&self, w: &[f64], h: &[f64], rows: usize, k: usize, cols: usize) -> f64 {
+        match self {
+            Data::Dense(d) => frobenius_error(d, w, h, rows, k, cols),
+            Data::Sparse(nz) => {
+                let wtw = matmul_at_b(w, w, rows, k, k);
+                let hht = matmul_a_bt(h, h, k, cols, k);
+                let wh_norm2: f64 = wtw.iter().zip(&hht).map(|(a, b)| a * b).sum();
+                let cross: f64 = nz
+                    .iter()
+                    .map(|&(r, c, v)| {
+                        let wh: f64 = (0..k).map(|p| w[r * k + p] * h[p * cols + c]).sum();
+                        v * v - 2.0 * v * wh
+                    })
+                    .sum();
+                (cross + wh_norm2).max(0.0).sqrt()
+            }
+        }
+    }
+}
+
+/// Reads the data matrix, checking that every entry is non-negative. A sparse input is read from
+/// its non-zeros, and a dense one entry by entry.
+fn gather<F: Float, X: ArrayView<Elem = F>>(
+    x: &X,
+    rows: usize,
+    cols: usize,
+) -> Result<Data, Error> {
+    let negative = || Error::InvalidParameter {
+        name: "X",
+        reason: "must be non-negative",
+    };
+    if x.is_sparse() {
+        let mut nz = Vec::new();
+        for r in 0..rows {
+            x.for_each_nonzero(r, |c, v| nz.push((r, c, v.to_f64())));
+        }
+        if nz.iter().any(|&(_, _, v)| v < 0.0) {
+            return Err(negative());
+        }
+        return Ok(Data::Sparse(nz));
+    }
+    let mut data = Vec::with_capacity(rows * cols);
+    for r in 0..rows {
+        for c in 0..cols {
+            let v = x.get(r, c).to_f64();
+            if v < 0.0 {
+                return Err(negative());
+            }
+            data.push(v);
+        }
+    }
+    Ok(Data::Dense(data))
+}
+
 impl<F: Float> UnsupervisedEstimator for Nmf<F> {
     type Float = F;
     type FitError = Error;
@@ -188,19 +294,7 @@ impl<F: Float> UnsupervisedEstimator for Nmf<F> {
         if !x.all_finite() {
             return Err(Error::NonFinite { what: "X" });
         }
-        let mut data = Vec::with_capacity(rows * cols);
-        for r in 0..rows {
-            for c in 0..cols {
-                let v = x.get(r, c).to_f64();
-                if v < 0.0 {
-                    return Err(Error::InvalidParameter {
-                        name: "X",
-                        reason: "must be non-negative",
-                    });
-                }
-                data.push(v);
-            }
-        }
+        let data = gather(&x, rows, cols)?;
 
         let (mut w, mut h) = match &self.init {
             Some((w, h)) => {
@@ -220,7 +314,7 @@ impl<F: Float> UnsupervisedEstimator for Nmf<F> {
             }
             None => {
                 // Scale so that W·H has about the mean of X, then draw uniform entries.
-                let mean = data.iter().sum::<f64>() / data.len() as f64;
+                let mean = data.mean(rows, cols);
                 let scale = (mean.max(EPSILON) / k as f64).sqrt();
                 let mut state = self.seed;
                 let w: Vec<f64> = (0..rows * k)
@@ -235,26 +329,26 @@ impl<F: Float> UnsupervisedEstimator for Nmf<F> {
 
         requires!(rows >= 1, "nmf.rows_positive");
         requires!(k >= 1, "nmf.components_positive");
-        let error_at_init = frobenius_error(&data, &w, &h, rows, k, cols);
+        let error_at_init = data.error(&w, &h, rows, k, cols);
         let mut previous_error = error_at_init;
         let mut n_iter = 0;
         for iter in 1..=self.max_iter {
             n_iter = iter;
             // W ← W ⊙ (X Hᵀ) ⊘ (W H Hᵀ)
-            let xht = matmul_a_bt(&data, &h, rows, cols, k);
+            let xht = data.xht(&h, rows, k, cols);
             let hht = matmul_a_bt(&h, &h, k, cols, k);
             let whht = matmul(&w, &hht, rows, k, k);
             multiply_update(&mut w, &xht, &whht);
 
             // H ← H ⊙ (Wᵀ X) ⊘ (Wᵀ W H)
-            let wtx = matmul_at_b(&w, &data, rows, k, cols);
+            let wtx = data.wtx(&w, rows, k, cols);
             let wtw = matmul_at_b(&w, &w, rows, k, k);
             let wtwh = matmul(&wtw, &h, k, k, cols);
             multiply_update(&mut h, &wtx, &wtwh);
 
             // Convergence is tested every 10 iterations, as in scikit-learn.
             if self.tol > 0.0 && iter % 10 == 0 {
-                let error = frobenius_error(&data, &w, &h, rows, k, cols);
+                let error = data.error(&w, &h, rows, k, cols);
                 let decrease = (previous_error - error) / error_at_init;
                 previous_error = error;
                 if decrease < self.tol {
@@ -263,7 +357,7 @@ impl<F: Float> UnsupervisedEstimator for Nmf<F> {
             }
         }
 
-        let reconstruction_error = frobenius_error(&data, &w, &h, rows, k, cols);
+        let reconstruction_error = data.error(&w, &h, rows, k, cols);
         // Multiplicative updates keep the factors non-negative and do not increase the error.
         ensures!(
             w.iter().chain(&h).all(|&v| v >= 0.0),
@@ -310,22 +404,13 @@ impl<F: Float> Transformer for Nmf<F> {
         }
         let k = self.n_components;
         let h = &fitted.components;
-        let data: Vec<f64> = (0..rows)
-            .flat_map(|r| (0..cols).map(move |c| (r, c)))
-            .map(|(r, c)| x.get(r, c).to_f64())
-            .collect();
-        if data.iter().any(|&v| v < 0.0) {
-            return Err(Error::InvalidParameter {
-                name: "X",
-                reason: "must be non-negative",
-            });
-        }
+        let data = gather(&x, rows, cols)?;
         // Start from the mean-scaled constant, then update W alone for the same budget.
-        let mean = data.iter().sum::<f64>() / data.len().max(1) as f64;
+        let mean = data.mean(rows, cols);
         let mut w = vec![(mean.max(EPSILON) / k as f64).sqrt(); rows * k];
         let hht = matmul_a_bt(h, h, k, cols, k);
         for _ in 0..fitted.n_iter.max(1) {
-            let xht = matmul_a_bt(&data, h, rows, cols, k);
+            let xht = data.xht(h, rows, k, cols);
             let whht = matmul(&w, &hht, rows, k, k);
             multiply_update(&mut w, &xht, &whht);
         }

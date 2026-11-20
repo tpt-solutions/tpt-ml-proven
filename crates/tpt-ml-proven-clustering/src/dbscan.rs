@@ -15,7 +15,7 @@
 use tpt_ml_proven_core::error::Error;
 use tpt_ml_proven_core::{ensures, requires, ArrayView, Float, UnsupervisedEstimator};
 
-use crate::kmeans::{for_each_row, sq_dist};
+use crate::kmeans::{for_each_row, sparse_rows, sparse_sq_dist, sq_dist};
 
 /// Label given to noise samples.
 pub const NOISE: i64 = -1;
@@ -69,6 +69,32 @@ fn neighbours<F: Float>(data: &[F], rows: usize, cols: usize, i: usize, eps2: F)
         .collect()
 }
 
+/// The samples, either dense or as sparse rows, with the neighbour search for each form.
+struct Points<F> {
+    dense: Vec<F>,
+    sparse: Option<Vec<(Vec<usize>, Vec<F>)>>,
+    rows: usize,
+    cols: usize,
+}
+
+impl<F: Float> Points<F> {
+    /// Every sample within the squared radius `eps2` of sample `i`, including `i` itself.
+    fn neighbours(&self, i: usize, eps2: F) -> Vec<usize> {
+        match &self.sparse {
+            None => neighbours(&self.dense, self.rows, self.cols, i, eps2),
+            Some(rows) => {
+                let (ai, av) = &rows[i];
+                (0..self.rows)
+                    .filter(|&j| {
+                        let (bi, bv) = &rows[j];
+                        sparse_sq_dist(ai, av, bi, bv) <= eps2
+                    })
+                    .collect()
+            }
+        }
+    }
+}
+
 impl<F: Float> UnsupervisedEstimator for Dbscan<F> {
     type Float = F;
     type FitError = Error;
@@ -102,12 +128,28 @@ impl<F: Float> UnsupervisedEstimator for Dbscan<F> {
         requires!(self.eps > F::ZERO, "dbscan.eps_positive");
         requires!(self.min_samples >= 1, "dbscan.min_samples_positive");
 
-        let mut data = Vec::with_capacity(rows * cols);
-        for_each_row(&x, |_, row| data.extend_from_slice(row));
+        // A sparse matrix keeps its rows sparse; a dense one is gathered into one buffer.
+        let points = if x.is_sparse() {
+            Points {
+                dense: Vec::new(),
+                sparse: Some(sparse_rows(&x, rows)),
+                rows,
+                cols,
+            }
+        } else {
+            let mut data = Vec::with_capacity(rows * cols);
+            for_each_row(&x, |_, row| data.extend_from_slice(row));
+            Points {
+                dense: data,
+                sparse: None,
+                rows,
+                cols,
+            }
+        };
         let eps2 = self.eps * self.eps;
 
         let counts: Vec<usize> = (0..rows)
-            .map(|i| neighbours(&data, rows, cols, i, eps2).len())
+            .map(|i| points.neighbours(i, eps2).len())
             .collect();
         let is_core: Vec<bool> = counts.iter().map(|&c| c >= self.min_samples).collect();
         ensures!(
@@ -126,7 +168,7 @@ impl<F: Float> UnsupervisedEstimator for Dbscan<F> {
             labels[i] = next_label;
             let mut stack = vec![i];
             while let Some(j) = stack.pop() {
-                for k in neighbours(&data, rows, cols, j, eps2) {
+                for k in points.neighbours(j, eps2) {
                     if labels[k] == NOISE {
                         labels[k] = next_label;
                         if is_core[k] {

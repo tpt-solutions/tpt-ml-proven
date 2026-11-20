@@ -18,7 +18,7 @@ use std::collections::BTreeMap;
 use tpt_ml_proven_core::error::Error;
 use tpt_ml_proven_core::{ensures, requires, ArrayView, Float, UnsupervisedEstimator};
 
-use crate::kmeans::{for_each_row, sq_dist};
+use crate::kmeans::{for_each_row, sparse_rows, sparse_sq_dist, sq_dist};
 
 /// Label given to noise samples.
 pub const NOISE: i64 = -1;
@@ -87,6 +87,23 @@ fn distance_matrix(data: &[f64], n: usize, d: usize) -> Vec<f64> {
     for i in 0..n {
         for j in i + 1..n {
             let v = sq_dist(&data[i * d..(i + 1) * d], &data[j * d..(j + 1) * d]).sqrt();
+            out[i * n + j] = v;
+            out[j * n + i] = v;
+        }
+    }
+    out
+}
+
+/// Euclidean distance matrix of sparse rows, row-major `n × n`. The matrix is dense by nature, but
+/// the input is read from its non-zeros only.
+fn distance_matrix_sparse<F: Float>(rows: &[(Vec<usize>, Vec<F>)]) -> Vec<f64> {
+    let n = rows.len();
+    let mut out = vec![0.0_f64; n * n];
+    for i in 0..n {
+        for j in i + 1..n {
+            let (ai, av) = &rows[i];
+            let (bi, bv) = &rows[j];
+            let v = sparse_sq_dist(ai, av, bi, bv).to_f64().sqrt();
             out[i * n + j] = v;
             out[j * n + i] = v;
         }
@@ -352,10 +369,13 @@ impl<F: Float> UnsupervisedEstimator for Hdbscan<F> {
             self.labels = Some(vec![NOISE]);
             return Ok(());
         }
-        let mut data: Vec<f64> = Vec::with_capacity(rows * cols);
-        for_each_row(&x, |_, row| data.extend(row.iter().map(|v| v.to_f64())));
-
-        let dist = distance_matrix(&data, rows, cols);
+        let dist = if x.is_sparse() {
+            distance_matrix_sparse(&sparse_rows(&x, rows))
+        } else {
+            let mut data: Vec<f64> = Vec::with_capacity(rows * cols);
+            for_each_row(&x, |_, row| data.extend(row.iter().map(|v| v.to_f64())));
+            distance_matrix(&data, rows, cols)
+        };
         let mst = mutual_reachability_mst(&dist, rows, min_samples);
         let tree = single_linkage(mst, rows);
         let condensed = condense(&tree, rows, self.min_cluster_size);

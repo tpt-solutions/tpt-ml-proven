@@ -7,6 +7,10 @@ All notable changes to `tpt-ml-proven-clustering` are recorded here. The format 
 
 ### Added
 
+- `Dbscan` and `Hdbscan` on sparse (CSR) input: distances are measured over the non-zeros of
+  each row, so the input is not copied into a dense buffer. Labels match the dense fit, checked
+  in `tests/sparse.rs`. HDBSCAN's pairwise distance matrix is still n × n.
+
 - `KMeans` (Lloyd's algorithm) with k-means++ and random initialisation, seeded and
   reproducible, for dense and sparse input. Empty clusters keep their previous centre.
 - Optional `parallel` feature: a multi-threaded assignment step whose results match the

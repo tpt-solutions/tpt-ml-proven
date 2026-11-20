@@ -398,6 +398,48 @@ fn nearest_row<F: Float>(row: &[F], centers: &[F], k: usize, cols: usize) -> (us
 
 /// Calls `f(r, row)` for every sample. A contiguous view is used in place. Other
 /// views have each row copied into one reused buffer.
+/// Each row of a sparse matrix as its column indices, in increasing order, and their values.
+pub(crate) fn sparse_rows<F: Float, X: ArrayView<Elem = F>>(
+    x: &X,
+    rows: usize,
+) -> Vec<(Vec<usize>, Vec<F>)> {
+    (0..rows)
+        .map(|r| {
+            let mut idx = Vec::new();
+            let mut val = Vec::new();
+            x.for_each_nonzero(r, |c, v| {
+                idx.push(c);
+                val.push(v);
+            });
+            (idx, val)
+        })
+        .collect()
+}
+
+/// Squared Euclidean distance between two sparse rows, each given as sorted column indices and
+/// their values. Only the positions that are non-zero in either row are visited.
+pub(crate) fn sparse_sq_dist<F: Float>(ai: &[usize], av: &[F], bi: &[usize], bv: &[F]) -> F {
+    let (mut p, mut q) = (0, 0);
+    let mut acc = F::ZERO;
+    while p < ai.len() || q < bi.len() {
+        let ca = ai.get(p).copied().unwrap_or(usize::MAX);
+        let cb = bi.get(q).copied().unwrap_or(usize::MAX);
+        if ca == cb {
+            let d = av[p] - bv[q];
+            acc = acc + d * d;
+            p += 1;
+            q += 1;
+        } else if ca < cb {
+            acc = acc + av[p] * av[p];
+            p += 1;
+        } else {
+            acc = acc + bv[q] * bv[q];
+            q += 1;
+        }
+    }
+    acc
+}
+
 pub(crate) fn for_each_row<F: Float, X: ArrayView<Elem = F>>(
     x: &X,
     mut f: impl FnMut(usize, &[F]),
