@@ -190,3 +190,19 @@ The conclusion is that the distance arithmetic is no longer the bottleneck of th
 is the per-row accumulation of sums and ranges, and per-row overhead. A faster kernel would need
 that accumulation vectorised over the coordinates rather than over the centres. That is a
 separate change, to be measured first with a probe like the one above.
+
+## Phase 14: coordinate-wise accumulation probe
+
+Per pass on 1,000,000 × 50 `f32`, k = 8, single thread, labels fixed, best of three:
+
+- The current accumulation (sums and ranges, copied from the library): 0.0138 s.
+- An AVX2 accumulation over the coordinates: 0.0109 s, bit-identical in sums, ranges and counts.
+- A plain scalar streaming sum over the matrix: 0.0233 s, a loop with a dependency chain, so not
+  a true bandwidth ceiling.
+
+Accumulation is about 14 ms of the roughly 67 ms that one pass of the fit takes on one thread. The
+AVX2 version saves about 3 ms per pass, which is about 4% of the fit, so it is not worth the unsafe
+code. The probe does not account for the remaining time. Its copies of the kernels do not match the
+library's own code: the probe's copy of the current distance kernel is slower than the library's
+whole pass, and the streaming figure is not a bandwidth limit. Identifying that time needs
+temporary timers inside the library, not further copies.
