@@ -189,8 +189,8 @@ Each item gets: crate code, `.tptc` contract, scikit-learn parity fixtures, FFI 
 - [x] `ArrayView::for_each_nonzero` and `CsrView::row`; `all_finite` over non-zeros only
 - [x] TruncatedSvd Gram and transform from non-zeros (the explained variance uses them too)
 - [ ] KMeans sparse distances via precomputed centre norms; no full densify when parallel. Open: the fused, parallel kernel is shared with Phase 14, and a new distance formula would move the 1e-9 parity results, so it needs its own measured change
-- [ ] Ridge and ElasticNet with implicit centring; NMF sparse `X·Hᵀ` and `WᵀX`; DBSCAN/HDBSCAN row fetch. Open
-- [ ] Property tests: sparse and dense results agree for every touched estimator. Done for TruncatedSvd (`decomposition/tests/sparse.rs`); open for the estimators above
+- [ ] Done: Ridge, ElasticNet and Lasso with implicit centring, from the non-zeros only (the `ArrayView::is_sparse` path). Lasso's own optimality check still copies the matrix. Done: NMF sparse `X·Hᵀ` and `WᵀX`, and the error from the non-zeros; DBSCAN and HDBSCAN read sparse rows and measure distances over their non-zeros
+- [ ] Property tests: sparse and dense results agree for every touched estimator. Done for TruncatedSvd and NMF (`decomposition/tests/sparse.rs`), for Ridge, ElasticNet and Lasso (`linear/tests/sparse.rs`), and for DBSCAN and HDBSCAN (`clustering/tests/sparse.rs`). Open for KMeans only, whose sparse distance needs its own measured change (see the item above)
 
 ## Phase 14 — KMeans speed
 - [ ] Register-blocked kernel (one row against 4 centres, one horizontal reduce per centre)
@@ -203,7 +203,7 @@ Each item gets: crate code, `.tptc` contract, scikit-learn parity fixtures, FFI 
 - [ ] Make `trees` generic over `Float`
 - [x] `DecisionTreeClassifier` (gini, entropy). Parity against scikit-learn on both criteria; kind 19 with a golden file; contract `decision-tree-classifier.tptc`
 - [x] `RandomForestRegressor` and `RandomForestClassifier` (bootstrap, `max_features`, seeded, kinds 20 and 21 with golden files). Not done: the parallel feature. The forests are tested by properties, not scikit-learn fixtures
-- [ ] GBM `subsample` and `max_features`; `min_samples_split`, `max_leaf_nodes`, feature importances. Done: `subsample`, `max_features` and the seed (kind 22). Open: `min_samples_split`, `max_leaf_nodes`, feature importances
+- [ ] GBM `subsample` and `max_features`; `min_samples_split`, `max_leaf_nodes`, feature importances. Done: `subsample`, `max_features` and the seed (kind 22). Done for the single trees, forests and boosting: `min_samples_split`, `max_leaf_nodes` (best-first growth) and `feature_importances` (kinds 26 to 30). The C ABI exposes the same settings and importances. Open: the boosting importances' small gap to scikit-learn (see the trees changelog)
 - [ ] Presort per feature once instead of re-sorting per node
 - [ ] `.tptc` contracts, runtime checks, persistence kinds and golden files, scikit-learn parity fixtures
 
@@ -221,19 +221,19 @@ Each item gets: crate code, `.tptc` contract, scikit-learn parity fixtures, FFI 
 - [ ] No new dependencies (hand-rolled CSV and argument parsing); integration tests using the golden model files, including a corrupted-byte failure case. Done: no new dependencies, and the corrupted-byte test. Still open: the tests fit fresh models and do not load the golden files
 
 ## Phase 18 — Go, WASM and C completeness
-- [ ] C ABI: expose the Phase 11 to 15 estimators; `tpml_version()`; pkg-config file; `examples/c/main.c` compiled in CI
-- [ ] Go: wrap DBSCAN, HDBSCAN, SVD, NMF, Ridge, Lasso, ElasticNet, Logistic, StumpForest; `PCA.InverseTransform`, KMeans `n_iter`, `float32`
+- [x] C ABI: expose the Phase 11 to 15 estimators; `tpml_version()`; pkg-config file; `examples/c/main.c` compiled in CI
+- [x] Go: wrap DBSCAN, HDBSCAN, SVD, NMF, Ridge, Lasso, ElasticNet, Logistic, StumpForest; `PCA.InverseTransform`, KMeans `n_iter`, `float32`
 - [ ] Go: document the `ffi/go/vX.Y.Z` tag and prebuilt static lib story; macOS and Windows link files checked
-- [ ] WASM: options-object constructors (no positional `undefined`, no BigInt seeds); expose transformers and trees
+- [x] WASM: options-object constructors (no positional `undefined`, no BigInt seeds); expose transformers and trees
 - [ ] WASM: templated `package.json`, `web` and `bundler` targets, browser demo
 
 ## Phase 19 — Tooling, governance, examples, docs
 - [x] `justfile`: `ci`, `test`, `py-test`, `wasm-test`, `go-test`, `header`, `contracts`, `bench`. `just` is not installed on this machine, so the recipes were not run through it. The `header` script was run by hand, and the other steps are the commands CI already runs
-- [ ] `SECURITY.md`, `CODE_OF_CONDUCT.md`, `CITATION.cff`, issue and PR templates, `.devcontainer/`; update `CONTRIBUTING.md` (still says issues only). Done: the first four. Still open: `.devcontainer/`, and `CONTRIBUTING.md`, whose accepts-issues-only policy is the maintainers' call to change
+- [ ] `SECURITY.md`, `CODE_OF_CONDUCT.md`, `CITATION.cff`, issue and PR templates, `.devcontainer/`; update `CONTRIBUTING.md` (still says issues only). Done: the first four, and `.devcontainer/`. Still open: `CONTRIBUTING.md`, whose accepts-issues-only policy is the maintainers' call to change
 - [x] `.github/dependabot.yml`: cargo for each of the five lockfile directories, github-actions, pip
-- [ ] `examples/`: Rust CSV to KMeans to save and load, regression with `cross_val_score`, Python notebook, wasm demo, C `main.c`; all built in CI. Done: the two Rust examples (`save_and_load`, `cross_validate` in `crates/tpt-ml-proven/examples/`, built by `cargo test`). Still open: the Python notebook, the wasm demo and `main.c`
+- [ ] `examples/`: Rust CSV to KMeans to save and load, regression with `cross_val_score`, Python notebook, wasm demo, C `main.c`; all built in CI. Done: the two Rust examples (`save_and_load`, `cross_validate` in `crates/tpt-ml-proven/examples/`, built by `cargo test`); the Python notebook (`ffi/python/examples/tour.ipynb`, committed with executed outputs); `main.c` (compiled and run in CI). Still open: the wasm demo has not been run in a browser, and the notebook is not built in CI
 - [ ] Hosted docs (mdBook or extended `docs/site`): per-language quickstart, "which estimator", scikit-learn migration guide, parameter tables, contract explainer; GitHub Pages workflow
-- [ ] Root README: install section and a 5-line quickstart
+- [x] Root README: install section and a 5-line quickstart
 
 ## Deferred (blocked on GitHub push, accounts or domain)
 - [ ] `release.yml`: tag-triggered wheels (manylinux, musllinux, macOS universal2, Windows, sdist), PyPI trusted publishing, crates.io in dependency order, C ABI tarballs, `ffi/go/vX.Y.Z` tags
